@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Python Virtual Environments & Caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment variables & secrets (CRITICAL: exclude all secrets)
+.env
+.env.*
+.env*.local
+!.env.example
+!**/.env.example
+*.pem
+*.key
+
+# Production builds
+dist/
+build/
+
+# Logs, test artifacts & scratch
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+scratch/
+.system_generated/
+playwright-report/
+test-results/
+
+# OS files
+.DS_Store
+Thumbs.db

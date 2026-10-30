@@ -1,0 +1,3 @@
+# BoundaryIQ Robots Configuration
+User-agent: *
+Allow: /
