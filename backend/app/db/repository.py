@@ -1,3 +1,17 @@
+"""
+BoundaryIQ SQLite Persistence Layer.
+
+Production Deployment Notes:
+- Target Cloud Architecture: Single-instance FastAPI backend on Render with a persistent disk.
+- Recommended Database Path: /var/data/boundary_iq.db (configured via DATABASE_PATH env var).
+- WAL Mode Co-location: In SQLite Write-Ahead Logging mode (PRAGMA journal_mode=WAL), the -wal
+  and -shm companion files are automatically created in the exact same directory alongside the .db file.
+  Therefore, mounting /var/data guarantees that all database state is persistent across restarts.
+- Single-Instance Assumption: SQLite does NOT support concurrent write access across multiple independent
+  compute containers/nodes. The Render deployment assumes a single service instance (num_instances: 1).
+  For horizontal multi-instance scaling, a managed PostgreSQL database is required.
+"""
+
 import os
 import json
 import sqlite3
@@ -33,8 +47,16 @@ class DatabaseManager:
                 base_dir = Path(__file__).resolve().parent.parent.parent
                 self.db_path = base_dir / "data" / "boundary_iq.db"
 
-        # Ensure parent directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists with permission error handling
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError) as e:
+            logger.critical(f"Failed to create database directory {self.db_path.parent}: {e}")
+            raise RuntimeError(
+                f"Database directory creation failed for path '{self.db_path}'. "
+                f"Ensure filesystem permissions allow writing (e.g. Render Persistent Disk mount): {e}"
+            ) from e
+
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:

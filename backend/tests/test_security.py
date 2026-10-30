@@ -16,12 +16,22 @@ def test_security_headers_present(client):
     assert headers.get("Permissions-Policy") == "geolocation=(), camera=(), microphone=()"
     assert headers.get("Content-Security-Policy") == "default-src 'none'; frame-ancestors 'none'"
 
-def test_hsts_applied_only_on_https(client):
+def test_hsts_applied_only_on_https(client, monkeypatch):
     # Standard HTTP request: no HSTS header
     http_res = client.get("/api/health")
     assert "Strict-Transport-Security" not in http_res.headers
 
-    # HTTPS proxy request: HSTS header must be present
+    # Direct HTTPS request: HSTS header must be present
+    direct_https_res = client.get("https://testserver/api/health")
+    assert direct_https_res.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains"
+
+    # Untrusted peer spoofing X-Forwarded-Proto over HTTP: HSTS header MUST NOT be present
+    monkeypatch.delenv("TRUSTED_PROXIES", raising=False)
+    spoofed_res = client.get("/api/health", headers={"x-forwarded-proto": "https"})
+    assert "Strict-Transport-Security" not in spoofed_res.headers
+
+    # Trusted proxy request with X-Forwarded-Proto: HSTS header must be present
+    monkeypatch.setenv("TRUSTED_PROXIES", "testclient")
     https_res = client.get("/api/health", headers={"x-forwarded-proto": "https"})
     assert https_res.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains"
 

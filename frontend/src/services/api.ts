@@ -15,6 +15,12 @@ import {
 const getApiBase = (): string => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (!envUrl || typeof envUrl !== 'string' || envUrl.trim() === '') {
+    if (import.meta.env.PROD) {
+      console.warn(
+        '[BoundaryIQ] VITE_API_BASE_URL is not set in production. ' +
+        'API calls to /api will resolve to the Vercel SPA index.html fallback unless a proxy rewrite is configured.'
+      );
+    }
     return '/api';
   }
   const cleanUrl = envUrl.trim().replace(/\/+$/, '');
