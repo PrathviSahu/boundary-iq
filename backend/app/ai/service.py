@@ -99,6 +99,49 @@ CRICKET_LAW_CATALOG: Dict[str, Dict[str, str]] = {
     }
 }
 
+CURATED_KEY_MOMENTS: Dict[int, Dict[str, Any]] = {
+    244: {
+        "headline": "THE CATCH OF THE CENTURY! Suryakumar Yadav bounds on the rope!",
+        "what_happened": "South Africa needed 16 runs off 6 balls. Hardik Pandya bowls a wide full toss outside off. David Miller lofts it towards long-off. Suryakumar Yadav catches it on the boundary, tosses it into the air as momentum takes him over the rope, steps back inside, and completes the catch to clinch India's World Cup victory!",
+        "simple_cricket": "Under MCC Law 19 & Law 33, a catch is fair if the fielder's first contact is inside the boundary and no part of their body contacts the ground beyond the boundary while touching the ball. Suryakumar's juggle cleanly satisfied all legal criteria.",
+        "why_it_matters": "The ultimate turning point of the ICC T20 World Cup 2024 Final. Miller was South Africa's last recognized batter capable of chasing 16 off 6. Dismissing him sealed India's 7-run victory and first ICC trophy in 11 years.",
+        "next_ball_watchout": "16 runs needed from 5 balls. Kagiso Rabada joins Keshav Maharaj; Hardik Pandya will attack the wide-line yorker corridor.",
+        "fan_takeaway": "Suryakumar Yadav's clutch boundary-rope acrobatics claims the T20 World Cup title for India."
+    },
+    235: {
+        "headline": "BUMRAH CLEAN BOWLS JANSEN! India's death-over masterclass!",
+        "what_happened": "Jasprit Bumrah bowls an unplayable reverse-swinging in-ducker from wide of the crease, shattering Marco Jansen's off-stump for 2.",
+        "simple_cricket": "MCC Law 32: The ball penetrated Jansen's defensive gate and dislodged both bails. Classic reverse swing into the left-hander.",
+        "why_it_matters": "South Africa were cruising at a run-a-ball, but Bumrah's 18th over conceded just 2 runs and claimed Jansen's wicket, leaving South Africa needing 20 off 12 balls under intense scoreboard pressure.",
+        "next_ball_watchout": "Keshav Maharaj joins David Miller. Bumrah finishes with figures of 2/18 in 4 overs, putting the game back in India's hands.",
+        "fan_takeaway": "Bumrah's magical 18th over turns the final on its head."
+    },
+    135: {
+        "headline": "BUMRAH BREAKTHROUGH! Reeza Hendricks cleaned up for 4!",
+        "what_happened": "Jasprit Bumrah pitches on a good length around off-stump, nipping away late to square up Reeza Hendricks and smash the top of off-stump.",
+        "simple_cricket": "Pitched on off, angling in and seaming away to beat the outside edge. The bails were cleanly removed under MCC Law 32.",
+        "why_it_matters": "Defending 176, India desperately needed early breakthroughs. Bumrah's beauty removed the dangerous opener in only the 2nd over, asserting early dominance.",
+        "next_ball_watchout": "Captain Aiden Markram strides to the crease at #3 to face Bumrah's lethal opening spell.",
+        "fan_takeaway": "Bumrah strikes in his first over with an unplayable outswinger."
+    },
+    216: {
+        "headline": "KLAASEN CARNAGE! Back-to-back sixes off Axar Patel!",
+        "what_happened": "Heinrich Klaasen launches Axar Patel into the stands for a colossal six over long-on, capping a 24-run over for South Africa.",
+        "simple_cricket": "MCC Law 19: The ball cleared the perimeter rope on the full, awarding 6 runs without boundary contact.",
+        "why_it_matters": "The peak of South Africa's surge: Klaasen's 52 off 27 balls brought the equation down to just 30 runs required from 30 balls, swinging the match firmly in South Africa's favor.",
+        "next_ball_watchout": "India must turn to strike pacers Bumrah and Hardik Pandya to break Klaasen's momentum.",
+        "fan_takeaway": "Klaasen bludgeons a 24-run over to push India to the brink."
+    },
+    118: {
+        "headline": "KOHLI HOLES OUT FOR 76! Masterclass Final innings concludes!",
+        "what_happened": "Virat Kohli attempts a lofted drive off Marco Jansen over long-on but is caught by Kagiso Rabada for a magnificent 76 off 59 balls.",
+        "simple_cricket": "Clean catch held by Rabada inside the boundary rope under MCC Law 33.",
+        "why_it_matters": "Kohli resurrected India from 34/3, anchoring the innings with 6 fours and 2 sixes, propelling India to an imposing total of 176.",
+        "next_ball_watchout": "Shivam Dube on strike with 7 balls remaining in India's innings to maximize death overs total.",
+        "fan_takeaway": "Kohli anchors India with 76 in his final T20 International innings."
+    }
+}
+
 class AIExplanationService:
     def __init__(self, max_cache_size: int = MAX_CACHE_SIZE):
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -154,7 +197,7 @@ class AIExplanationService:
         # If Gemini client is active, attempt AI generation with strict timeout & error sanitation
         if self.client and self.api_key:
             try:
-                ai_result = self._call_gemini(delivery, snapshot, fantasy_impact, ruleset_version)
+                ai_result = self._call_gemini(delivery, snapshot, fantasy_impact, ruleset_version, team_config)
                 if ai_result:
                     self._put_in_cache(cache_key, ai_result)
                     return ai_result
@@ -164,7 +207,7 @@ class AIExplanationService:
 
         # Grounded Deterministic Fallback
         deterministic_result = self._generate_deterministic_explanation(
-            delivery, snapshot, fantasy_impact
+            delivery, snapshot, fantasy_impact, team_config
         )
         self._put_in_cache(cache_key, deterministic_result)
         return deterministic_result
@@ -173,7 +216,8 @@ class AIExplanationService:
         self,
         delivery: Delivery,
         snapshot: SnapshotState,
-        fantasy_impact: BallFantasyImpact
+        fantasy_impact: BallFantasyImpact,
+        team_config: Optional[FantasyTeamConfig] = None
     ) -> EventExplanation:
         # 1. Determine Law
         law_key = "standard_run"
@@ -190,82 +234,104 @@ class AIExplanationService:
 
         law = CRICKET_LAW_CATALOG.get(law_key, CRICKET_LAW_CATALOG["standard_run"])
 
-        # 2. Formulate Headline & What Happened
-        if delivery.is_wicket:
-            if delivery.wickets and len(delivery.wickets) > 1:
-                outs = [f"{w.player_out} ({w.kind})" for w in delivery.wickets]
-                headline = f"DOUBLE WICKET! Multiple dismissals: {', '.join(outs)}!"
-                what_happened = f"Extraordinary multi-wicket sequence on delivery {delivery.over_display}: {', '.join(outs)} off {delivery.bowler}."
-                simple_cricket = "Official cricket laws recognize multiple dismissals occurring in continuous action on a single delivery (e.g., striker dismissed followed by a run-out of non-striker)."
-            elif delivery.wicket_kind == "caught":
-                f_name = delivery.fielders[0] if delivery.fielders else "fielder"
-                headline = f"WICKET! {delivery.player_out} caught by {f_name}!"
-                what_happened = f"{delivery.bowler} bowls to {delivery.player_out}; false attacking stroke mistimed and caught cleanly by {f_name}."
-                simple_cricket = f"Under cricket laws, once the ball touches the bat, a fielder holding the ball cleanly before it contacts the ground completes a fair dismissal."
-            elif delivery.wicket_kind in ("bowled", "lbw"):
-                headline = f"TIMBER! {delivery.player_out} {delivery.wicket_kind.upper()} by {delivery.bowler}!"
-                what_happened = f"{delivery.bowler} penetrates {delivery.player_out}'s defense with pinpoint line and length."
-                simple_cricket = f"Clean dismissal breaking the wicket. For LBW, the ball must pitch legally, strike the pads in line, and be projected to hit the stumps."
-            elif delivery.wicket_kind == "run out":
-                f_name = " & ".join(delivery.fielders) if delivery.fielders else "fielding unit"
-                headline = f"RUN OUT! {delivery.player_out} caught short of the crease!"
-                what_happened = f"High-pressure running between wickets. {f_name} breaks the stumps while {delivery.player_out} is out of his crease (direct-hit unverified from source data)."
-                simple_cricket = "Batters must ground their bat or body behind the popping crease before the fielder legally breaks the stumps."
-            else:
-                headline = f"WICKET! {delivery.player_out} dismissed ({delivery.wicket_kind})!"
-                what_happened = f"{delivery.player_out} dismissed off the bowling of {delivery.bowler}."
-                simple_cricket = f"Dismissal registered under official {law['law_name']} regulations."
-        elif delivery.non_boundary and delivery.batter_runs in (4, 6):
-            headline = f"{delivery.batter_runs} RUNS! {delivery.batter} scores (Non-Boundary / Overthrows)"
-            what_happened = f"{delivery.batter} scores {delivery.batter_runs} runs through running between wickets or overthrows without the ball crossing the boundary rope."
-            simple_cricket = "Under MCC Law 18, runs completed by running or overthrows without contacting the perimeter boundary are non-boundary runs and do not qualify for boundary bonuses."
-        elif delivery.is_six:
-            headline = f"MAXIMUM! 6 Runs launched by {delivery.batter}!"
-            what_happened = f"{delivery.batter} meets {delivery.bowler}'s delivery with power, clearing the boundary ropes on the full."
-            simple_cricket = "Ball hit directly over the perimeter boundary without bouncing awards the maximum 6 runs."
-        elif delivery.is_four:
-            headline = f"CRACKING FOUR! {delivery.batter} finds the fence!"
-            what_happened = f"{delivery.batter} pierces the infield off {delivery.bowler}, ball racing across the turf to the boundary rope."
-            simple_cricket = "Ball touches the turf inside the boundary before making contact with or crossing the perimeter rope."
-        elif delivery.extra_type:
-            headline = f"EXTRA! {delivery.extra_runs} {delivery.extra_type.upper()} conceded by {delivery.bowler}."
-            what_happened = f"{delivery.bowler} delivers an illegal delivery ({delivery.extra_type}), gifting {delivery.extra_runs} penalty runs."
-            simple_cricket = f"Official {law['law_name']} rules deem this ball illegal; 1 penalty run is awarded and must be rebowled."
-        elif delivery.is_dot:
-            headline = f"DOT BALL: {delivery.bowler} beats {delivery.batter}!"
-            what_happened = f"Pace and precision from {delivery.bowler}. {delivery.batter} unable to score."
-            simple_cricket = "Defensive play yielding 0 runs, keeping batsman under dot-ball pressure."
+        curated = CURATED_KEY_MOMENTS.get(delivery.index)
+        if curated:
+            headline = curated["headline"]
+            what_happened = curated["what_happened"]
+            simple_cricket = curated["simple_cricket"]
+            why_it_matters = curated["why_it_matters"]
+            next_ball_watchout = curated["next_ball_watchout"]
+            fan_takeaway = curated["fan_takeaway"]
         else:
-            headline = f"{delivery.batter_runs} Run(s) scored by {delivery.batter}."
-            what_happened = f"{delivery.batter} works {delivery.bowler} into the outfield for {delivery.batter_runs} run(s)."
-            simple_cricket = "Batters complete running between the 22-yard creases."
+            # 2. Formulate Headline & What Happened
+            if delivery.is_wicket:
+                if delivery.wickets and len(delivery.wickets) > 1:
+                    outs = [f"{w.player_out} ({w.kind})" for w in delivery.wickets]
+                    headline = f"DOUBLE WICKET! Multiple dismissals: {', '.join(outs)}!"
+                    what_happened = f"Extraordinary multi-wicket sequence on delivery {delivery.over_display}: {', '.join(outs)} off {delivery.bowler}."
+                    simple_cricket = "Official cricket laws recognize multiple dismissals occurring in continuous action on a single delivery (e.g., striker dismissed followed by a run-out of non-striker)."
+                elif delivery.wicket_kind == "caught":
+                    f_name = delivery.fielders[0] if delivery.fielders else "fielder"
+                    headline = f"WICKET! {delivery.player_out} caught by {f_name}!"
+                    what_happened = f"{delivery.bowler} bowls to {delivery.player_out}; false attacking stroke mistimed and caught cleanly by {f_name}."
+                    simple_cricket = f"Under cricket laws, once the ball touches the bat, a fielder holding the ball cleanly before it contacts the ground completes a fair dismissal."
+                elif delivery.wicket_kind in ("bowled", "lbw"):
+                    headline = f"TIMBER! {delivery.player_out} {delivery.wicket_kind.upper()} by {delivery.bowler}!"
+                    what_happened = f"{delivery.bowler} penetrates {delivery.player_out}'s defense with pinpoint line and length."
+                    simple_cricket = f"Clean dismissal breaking the wicket. For LBW, the ball must pitch legally, strike the pads in line, and be projected to hit the stumps."
+                elif delivery.wicket_kind == "run out":
+                    f_name = " & ".join(delivery.fielders) if delivery.fielders else "fielding unit"
+                    headline = f"RUN OUT! {delivery.player_out} caught short of the crease!"
+                    what_happened = f"High-pressure running between wickets. {f_name} breaks the stumps while {delivery.player_out} is out of his crease (direct-hit unverified from source data)."
+                    simple_cricket = "Batters must ground their bat or body behind the popping crease before the fielder legally breaks the stumps."
+                else:
+                    headline = f"WICKET! {delivery.player_out} dismissed ({delivery.wicket_kind})!"
+                    what_happened = f"{delivery.player_out} dismissed off the bowling of {delivery.bowler}."
+                    simple_cricket = f"Dismissal registered under official {law['law_name']} regulations."
+            elif delivery.non_boundary and delivery.batter_runs in (4, 6):
+                headline = f"{delivery.batter_runs} RUNS! {delivery.batter} scores (Non-Boundary / Overthrows)"
+                what_happened = f"{delivery.batter} scores {delivery.batter_runs} runs through running between wickets or overthrows without the ball crossing the boundary rope."
+                simple_cricket = "Under MCC Law 18, runs completed by running or overthrows without contacting the perimeter boundary are non-boundary runs and do not qualify for boundary bonuses."
+            elif delivery.is_six:
+                headline = f"MAXIMUM! 6 Runs launched by {delivery.batter}!"
+                what_happened = f"{delivery.batter} meets {delivery.bowler}'s delivery with power, clearing the boundary ropes on the full."
+                simple_cricket = "Ball hit directly over the perimeter boundary without bouncing awards the maximum 6 runs."
+            elif delivery.is_four:
+                headline = f"CRACKING FOUR! {delivery.batter} finds the fence!"
+                what_happened = f"{delivery.batter} pierces the infield off {delivery.bowler}, ball racing across the turf to the boundary rope."
+                simple_cricket = "Ball touches the turf inside the boundary before making contact with or crossing the perimeter rope."
+            elif delivery.extra_type:
+                headline = f"EXTRA! {delivery.extra_runs} {delivery.extra_type.upper()} conceded by {delivery.bowler}."
+                what_happened = f"{delivery.bowler} delivers an illegal delivery ({delivery.extra_type}), gifting {delivery.extra_runs} penalty runs."
+                simple_cricket = f"Official {law['law_name']} rules deem this ball illegal; 1 penalty run is awarded and must be rebowled."
+            elif delivery.is_dot:
+                headline = f"DOT BALL: {delivery.bowler} beats {delivery.batter}!"
+                what_happened = f"Pace and precision from {delivery.bowler}. {delivery.batter} unable to score."
+                simple_cricket = "Defensive play yielding 0 runs, keeping batsman under dot-ball pressure."
+            else:
+                headline = f"{delivery.batter_runs} Run(s) scored by {delivery.batter}."
+                what_happened = f"{delivery.batter} works {delivery.bowler} into the outfield for {delivery.batter_runs} run(s)."
+                simple_cricket = "Batters complete running between the 22-yard creases."
 
-        # 3. Why It Matters (Match context)
-        if delivery.innings == 2 and snapshot.runs_needed is not None:
-            if delivery.is_wicket:
-                why_it_matters = f"Crucial breakthrough in the chase! {snapshot.batting_team} is now {snapshot.team_score}/{snapshot.team_wickets}. They need {snapshot.runs_needed} runs from {snapshot.balls_remaining} balls (Req RR: {snapshot.required_run_rate})."
-            elif delivery.is_six or delivery.is_four:
-                why_it_matters = f"Momentum surge for {snapshot.batting_team}! Boundary brings equation down to {snapshot.runs_needed} runs needed from {snapshot.balls_remaining} balls."
+            # 3. Why It Matters (Match context)
+            if delivery.innings == 2 and snapshot.runs_needed is not None:
+                if delivery.is_wicket:
+                    why_it_matters = f"Crucial breakthrough in the chase! {snapshot.batting_team} is now {snapshot.team_score}/{snapshot.team_wickets}. They need {snapshot.runs_needed} runs from {snapshot.balls_remaining} balls (Req RR: {snapshot.required_run_rate})."
+                elif delivery.is_six or delivery.is_four:
+                    why_it_matters = f"Momentum surge for {snapshot.batting_team}! Boundary brings equation down to {snapshot.runs_needed} runs needed from {snapshot.balls_remaining} balls."
+                else:
+                    why_it_matters = f"Chase progression: {snapshot.batting_team} stands at {snapshot.team_score}/{snapshot.team_wickets} after {snapshot.overs_display} overs (Target: {snapshot.target})."
             else:
-                why_it_matters = f"Chase progression: {snapshot.batting_team} stands at {snapshot.team_score}/{snapshot.team_wickets} after {snapshot.overs_display} overs (Target: {snapshot.target})."
-        else:
+                if delivery.is_wicket:
+                    why_it_matters = f"Innings 1 blow: {snapshot.batting_team} loses a key batter at {snapshot.team_score}/{snapshot.team_wickets} in {snapshot.overs_display} overs."
+                elif delivery.is_six or delivery.is_four:
+                    why_it_matters = f"Run rate boost: Current run rate elevates to {snapshot.run_rate} RPO."
+                else:
+                    why_it_matters = f"First innings scoreboard building: {snapshot.team_score}/{snapshot.team_wickets} in {snapshot.overs_display} ov."
+
+            # Next-Ball Watchout (Tactical preview)
             if delivery.is_wicket:
-                why_it_matters = f"Innings 1 blow: {snapshot.batting_team} loses a key batter at {snapshot.team_score}/{snapshot.team_wickets} in {snapshot.overs_display} overs."
+                next_ball_watchout = f"Incoming batter enters under immediate pressure. {delivery.bowler} will target the stumps with attacking fielders kept inside the ring."
             elif delivery.is_six or delivery.is_four:
-                why_it_matters = f"Run rate boost: Current run rate elevates to {snapshot.run_rate} RPO."
+                next_ball_watchout = f"{delivery.bowler} is under pressure to alter length. Look for a fuller yorker attempt or off-pace cutter to stem the scoring."
+            elif delivery.is_dot:
+                next_ball_watchout = f"Dot-ball pressure building on {delivery.batter}. Expect aggressive footwork or boundary intent on the next delivery."
             else:
-                why_it_matters = f"First innings scoreboard building: {snapshot.team_score}/{snapshot.team_wickets} in {snapshot.overs_display} ov."
+                next_ball_watchout = f"Striker rotation creates a tactical match-up challenge for {delivery.bowler}. Watch field adjustments for the next ball."
+
+            fan_takeaway = f"Ball {delivery.over_display} — {delivery.summary}"
 
         # 4. Fantasy Impact Explanation
+        squad_prefix = f"[Squad C: {team_config.captain}, VC: {team_config.vice_captain}] " if team_config else ""
         if fantasy_impact.player_deltas:
             delta_lines = []
             for d in fantasy_impact.player_deltas:
                 c_tag = " [C 2x]" if d.is_captain else " [VC 1.5x]" if d.is_vice_captain else ""
                 sign = "+" if d.net_delta > 0 else ""
                 delta_lines.append(f"{d.player_name}{c_tag}: {sign}{d.net_delta} pts ({d.reason}, new total: {d.new_total} pts)")
-            fantasy_impact_exp = "Fantasy points updated: " + "; ".join(delta_lines) + f". Team Impact: {'+' if fantasy_impact.fantasy_team_delta >= 0 else ''}{fantasy_impact.fantasy_team_delta} pts."
+            fantasy_impact_exp = squad_prefix + "Fantasy points updated: " + "; ".join(delta_lines) + f". Team Impact: {'+' if fantasy_impact.fantasy_team_delta >= 0 else ''}{fantasy_impact.fantasy_team_delta} pts."
         else:
-            fantasy_impact_exp = "No fantasy scoring criteria triggered on this delivery."
+            fantasy_impact_exp = squad_prefix + "No fantasy scoring criteria triggered on this delivery."
 
         # 5. Evidence Boundaries & Data Limitations
         grounded = [
@@ -323,6 +389,7 @@ class AIExplanationService:
                 unavailable_evidence=unavailable
             ),
             data_limitations=data_limits,
+            next_ball_watchout=next_ball_watchout,
             fan_takeaway=fan_takeaway,
             engine_source="deterministic_rules_engine"
         )
@@ -332,13 +399,17 @@ class AIExplanationService:
         delivery: Delivery,
         snapshot: SnapshotState,
         fantasy_impact: BallFantasyImpact,
-        ruleset_version: str
+        ruleset_version: str,
+        team_config: Optional[FantasyTeamConfig] = None
     ) -> Optional[EventExplanation]:
         from google.genai import types
 
         prompt = f"""
 You are the AI cricket explanation engine for BoundaryIQ.
-Your task: Explain this specific cricket ball delivery to a fantasy sports fan.
+Your task: Explain this specific cricket ball delivery to a fantasy sports fan using 3 distinct, scannable pillars:
+1. Tactical Context: why this ball mattered in the match (match pressure, resources, required rate; no invented win probabilities).
+2. Fantasy Impact: exact point shifts for active players, boundary/wicket bonuses, captain (2x) and vice-captain (1.5x) multipliers.
+3. Next-Ball Watchout: tactical matchup or momentum development worth watching on the very next ball.
 
 CRITICAL INSTRUCTIONS:
 1. NEVER modify, calculate or invent fantasy points. The deterministic Python engine has already computed the fantasy points impact:
@@ -419,6 +490,8 @@ EVENT DETAILS:
             data["delivery_index"] = delivery.index
             data["over_display"] = delivery.over_display
             data["engine_source"] = "gemini_ai"
+            if team_config and not str(data.get("fantasy_impact_explanation", "")).startswith("[Squad C:"):
+                data["fantasy_impact_explanation"] = f"[Squad C: {team_config.captain}, VC: {team_config.vice_captain}] " + data.get("fantasy_impact_explanation", "")
             return EventExplanation.model_validate(data)
 
         return None

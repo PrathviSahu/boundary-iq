@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
-import { PlayerFantasyScore, BallFantasyImpact, FantasyTeamConfig } from '../types';
+import React, { useState, useMemo } from 'react';
+import { ChevronDown, ChevronUp, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { PlayerFantasyScore, BallFantasyImpact, FantasyTeamConfig, OptimalCaptaincyComparison, PlayerDelta } from '../types';
 
 interface FantasyTeamPanelProps {
   playerScores: Record<string, PlayerFantasyScore>;
@@ -8,6 +8,7 @@ interface FantasyTeamPanelProps {
   teamDelta: number;
   currentDeltaImpact?: BallFantasyImpact | null;
   teamConfig: FantasyTeamConfig;
+  optimalCaptaincy?: OptimalCaptaincyComparison | null;
   onOpenCustomizer: () => void;
   onSelectPreset: (presetName: string) => void;
 }
@@ -16,7 +17,9 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
   playerScores,
   teamTotal,
   teamDelta,
+  currentDeltaImpact,
   teamConfig,
+  optimalCaptaincy,
   onOpenCustomizer,
   onSelectPreset,
 }) => {
@@ -27,6 +30,16 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
   };
 
   const selectedList = teamConfig.selected_players;
+
+  const deltaMap = useMemo(() => {
+    const map: Record<string, PlayerDelta> = {};
+    if (currentDeltaImpact?.player_deltas) {
+      for (const d of currentDeltaImpact.player_deltas) {
+        map[d.player_name] = d;
+      }
+    }
+    return map;
+  }, [currentDeltaImpact]);
 
   return (
     <div className="bg-surface border border-ink-border rounded-lg p-4 shadow-sm flex flex-col h-full space-y-3.5">
@@ -99,6 +112,36 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
         </div>
       </div>
 
+      {/* What-If Captaincy Instant Regret Calculator */}
+      {optimalCaptaincy && (
+        <div
+          className={`p-2.5 rounded-md border text-xs min-w-0 transition-all shadow-2xs ${
+            optimalCaptaincy.is_already_optimal
+              ? 'bg-forest-50/70 border-forest-200 text-forest-950'
+              : 'bg-amber-50/80 border-amber-200/90 text-amber-950'
+          }`}
+        >
+          <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-wider mb-1">
+            <span className="flex items-center space-x-1">
+              <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
+              <span>{optimalCaptaincy.is_already_optimal ? 'Optimal Captaincy' : 'What-If Captaincy'}</span>
+            </span>
+            <span
+              className={`font-mono font-bold px-1.5 py-0.2 rounded text-[10px] ${
+                optimalCaptaincy.is_already_optimal
+                  ? 'bg-forest-200/80 text-forest-900'
+                  : 'bg-amber-200 text-amber-900'
+              }`}
+            >
+              {optimalCaptaincy.is_already_optimal ? '0 pts delta (Peak)' : `+${optimalCaptaincy.point_difference} pts diff`}
+            </span>
+          </div>
+          <p className="text-[11px] leading-snug font-medium">
+            {optimalCaptaincy.summary}
+          </p>
+        </div>
+      )}
+
       {/* Squad Actions: Customise & Quick Presets */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-ink-border text-xs min-w-0">
         <button
@@ -147,11 +190,14 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
           const isC = teamConfig.captain === pName;
           const isVC = teamConfig.vice_captain === pName;
           const isExpanded = expandedPlayer === pName;
+          const delta = deltaMap[pName];
 
           return (
             <div
               key={pName}
-              className="bg-white border border-ink-border rounded-md overflow-hidden transition-colors hover:border-forest-300 min-w-0"
+              className={`bg-white border rounded-md overflow-hidden transition-colors hover:border-forest-300 min-w-0 ${
+                delta && delta.net_delta !== 0 ? 'border-forest-400 bg-forest-50/20 shadow-2xs' : 'border-ink-border'
+              }`}
             >
               <div
                 onClick={() => toggleExpand(pName)}
@@ -169,7 +215,7 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
                   </span>
 
                   <div className="min-w-0">
-                    <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
                       <span className="font-semibold text-ink-primary text-xs truncate max-w-[110px] sm:max-w-none">{pName}</span>
                       {isC && (
                         <span className="text-[9px] font-mono font-bold bg-forest-600 text-white px-1 rounded shrink-0">
@@ -181,8 +227,30 @@ export const FantasyTeamPanel: React.FC<FantasyTeamPanelProps> = ({
                           VC
                         </span>
                       )}
+                      {delta && delta.net_delta !== 0 && (
+                        <span
+                          className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border shrink-0 ${
+                            delta.net_delta > 0
+                              ? 'bg-forest-100 text-forest-800 border-forest-300'
+                              : 'bg-sport-wicketBg text-sport-wicket border-sport-wicketBorder'
+                          }`}
+                          title={delta.reason}
+                        >
+                          {delta.net_delta > 0 ? `+${delta.net_delta}` : delta.net_delta} pts
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[10px] text-ink-secondary font-mono">{score.role}</span>
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <span className="text-[10px] text-ink-secondary font-mono">{score.role}</span>
+                      {delta && delta.net_delta !== 0 && (
+                        <>
+                          <span className="text-ink-muted text-[10px]">•</span>
+                          <span className="text-[10px] text-forest-700 font-medium truncate max-w-[140px] sm:max-w-none">
+                            {delta.reason}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 

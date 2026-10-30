@@ -53,6 +53,18 @@ class FantasyTeamConfig(BaseModel):
     captain: str
     vice_captain: str
 
+class OptimalCaptaincyComparison(BaseModel):
+    current_captain: str
+    current_vice_captain: str
+    current_combo_points: float
+    optimal_captain: str
+    optimal_vice_captain: str
+    optimal_combo_points: float
+    optimal_team_total: float
+    point_difference: float
+    is_already_optimal: bool
+    summary: str
+
 class FantasyScoreResponse(BaseModel):
     delivery_index: int
     over_display: str
@@ -60,3 +72,4 @@ class FantasyScoreResponse(BaseModel):
     ball_delta: BallFantasyImpact
     team_total: float
     team_delta: float
+    optimal_captaincy: Optional[OptimalCaptaincyComparison] = None

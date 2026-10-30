@@ -7,6 +7,10 @@ import {
   HelpCircle,
   Award,
   Zap,
+  Target,
+  Eye,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { EventExplanation, BallFantasyImpact, Delivery } from '../types';
 
@@ -23,7 +27,7 @@ export const ExplainerPanel: React.FC<ExplainerPanelProps> = ({
   currentDelivery,
   isLoading,
 }) => {
-  const [activeTab, setActiveTab] = useState<'event' | 'fantasy'>('event');
+  const [showEvidence, setShowEvidence] = useState<boolean>(false);
 
   if (isLoading && !explanation) {
     return (
@@ -52,14 +56,14 @@ export const ExplainerPanel: React.FC<ExplainerPanelProps> = ({
         <div className="min-w-0 flex-1">
           <h3 className="text-xs font-bold text-ink-primary uppercase tracking-wider flex items-center space-x-1.5">
             <Zap className="w-3.5 h-3.5 text-forest-600 shrink-0" />
-            <span className="truncate">Event & Rules Explainer</span>
+            <span className="truncate">Ball Explainer &amp; Rules</span>
           </h3>
           <span className="text-[11px] text-ink-secondary font-mono block truncate">
             Over {currentDelivery.over_display} • {currentDelivery.bowler} to {currentDelivery.batter}
           </span>
         </div>
 
-        {/* Source Badge */}
+        {/* Engine Source Badge */}
         <div
           className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium border shrink-0 ${
             isAI
@@ -70,193 +74,173 @@ export const ExplainerPanel: React.FC<ExplainerPanelProps> = ({
         >
           {isAI ? (
             <>
-              <span className="w-1.5 h-1.5 rounded-full bg-forest-600" />
+              <span className="w-1.5 h-1.5 rounded-full bg-forest-600 animate-pulse" />
               <span>Gemini AI</span>
             </>
           ) : (
             <>
               <ShieldCheck className="w-3 h-3 text-ink-secondary" />
-              <span>Deterministic Rules</span>
+              <span>Deterministic</span>
             </>
           )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex rounded-md bg-canvas p-0.5 border border-ink-border text-xs">
-        <button
-          onClick={() => setActiveTab('event')}
-          className={`flex-1 py-1 rounded text-xs font-medium transition-colors ${
-            activeTab === 'event'
-              ? 'bg-surface text-ink-primary font-semibold shadow-xs'
-              : 'text-ink-secondary hover:text-ink-primary'
-          }`}
-        >
-          Cricket Rule & Context
-        </button>
-        <button
-          onClick={() => setActiveTab('fantasy')}
-          className={`flex-1 py-1 rounded text-xs font-medium transition-colors ${
-            activeTab === 'fantasy'
-              ? 'bg-surface text-forest-700 font-semibold shadow-xs'
-              : 'text-ink-secondary hover:text-ink-primary'
-          }`}
-        >
-          Fantasy Points Impact
-        </button>
-      </div>
-
-      {/* Tab 1: Cricket Event & Context */}
-      {activeTab === 'event' && (
-        <div className="flex-1 overflow-y-auto space-y-3 pr-0.5 text-xs text-ink-primary">
-          {/* Section 1: WHAT HAPPENED */}
-          <div className="p-3 rounded-md bg-canvas border border-ink-border space-y-1">
+      {/* Main Explainer Body: 3 Structured Pills */}
+      <div className="flex-1 overflow-y-auto space-y-3 pr-0.5 text-xs text-ink-primary min-w-0">
+        {/* Event Headline & What Happened Card */}
+        <div className="p-3 rounded-md bg-canvas border border-ink-border space-y-1">
+          <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-ink-secondary uppercase tracking-wider block">
-              What Happened
+              Event Breakdown
             </span>
-            <h4 className="text-xs font-bold text-ink-primary">{explanation.headline}</h4>
-            <p className="text-xs text-ink-secondary leading-relaxed">{explanation.what_happened}</p>
+            {explanation.cricket_rule?.law_number && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white text-forest-800 border border-ink-border font-semibold">
+                {explanation.cricket_rule.law_number}
+              </span>
+            )}
           </div>
-
-          {/* Section 2: CRICKET CONTEXT & MATCH STAKES */}
-          <div className="p-3 rounded-md bg-white border border-ink-border space-y-1">
-            <div className="flex items-center space-x-1 text-ink-secondary font-semibold text-[10px] uppercase tracking-wider">
-              <span>Match Tactical Context</span>
-            </div>
-            <p className="text-ink-secondary text-xs leading-relaxed">{explanation.why_it_matters}</p>
-          </div>
-
-          {/* Section 3: APPLICABLE CRICKET RULE */}
-          <div className="p-3 rounded-md bg-white border border-ink-border space-y-1">
-            <div className="flex items-center justify-between pb-1 border-b border-ink-border">
-              <div className="flex items-center space-x-1.5 text-forest-700 font-semibold text-[10px] uppercase tracking-wider">
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Applicable Cricket Rule</span>
-              </div>
-              {explanation.cricket_rule.law_number && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-forest-50 text-forest-800 border border-forest-200 font-semibold">
-                  {explanation.cricket_rule.law_number}
-                </span>
-              )}
-            </div>
-            <div className="font-semibold text-ink-primary text-xs">{explanation.cricket_rule.law_name}</div>
-            <p className="text-[11px] text-ink-secondary leading-relaxed">{explanation.cricket_rule.summary}</p>
-          </div>
-
-          {/* Section 4: DATA LIMITATIONS & VERIFIED EVIDENCE */}
-          <div className="p-3 rounded-md bg-forest-50/50 border border-forest-200/60 space-y-2">
-            <div className="text-[10px] font-semibold text-forest-800 uppercase tracking-wider flex items-center space-x-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-forest-700" />
-              <span>Evidence Boundaries (Grounding Integrity)</span>
-            </div>
-
-            {/* Verified Facts */}
-            <div className="space-y-1">
-              <span className="text-[10px] text-ink-secondary font-medium">Verified Cricsheet Events:</span>
-              {explanation.evidence.grounded_in_data.map((fact, idx) => (
-                <div key={idx} className="flex items-start space-x-1.5 text-[11px] text-ink-primary">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-forest-600 flex-shrink-0 mt-0.5" />
-                  <span>{fact}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Unavailable Evidence Notice */}
-            <div className="pt-2 border-t border-forest-200/60 space-y-1">
-              <span className="text-[10px] text-ink-secondary font-medium">Unavailable in Data (Not Fabricated):</span>
-              {explanation.evidence.unavailable_evidence.map((unav, idx) => (
-                <div key={idx} className="flex items-start space-x-1.5 text-[11px] text-ink-secondary">
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <span>{unav}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <h4 className="text-xs font-bold text-ink-primary leading-tight">{explanation.headline}</h4>
+          <p className="text-xs text-ink-secondary leading-relaxed">{explanation.what_happened}</p>
         </div>
-      )}
 
-      {/* Tab 2: Fantasy Points Impact */}
-      {activeTab === 'fantasy' && (
-        <div className="flex-1 overflow-y-auto space-y-3 pr-0.5 text-xs text-ink-primary">
-          {/* Section 1: FANTASY IMPACT SUMMARY */}
-          <div className="p-3 rounded-md bg-canvas border border-ink-border space-y-1">
-            <div className="flex items-center space-x-1.5 text-forest-700 font-semibold text-[10px] uppercase tracking-wider">
-              <Award className="w-3.5 h-3.5" />
-              <span>Fantasy Impact Summary</span>
-            </div>
-            <p className="text-ink-primary text-xs leading-relaxed">{explanation.fantasy_impact_explanation}</p>
+        {/* PILL 1: TACTICAL CONTEXT */}
+        <div className="p-3 rounded-md bg-white border border-forest-200/80 space-y-1 shadow-2xs">
+          <div className="flex items-center space-x-1.5 text-forest-800 font-bold text-[10px] uppercase tracking-wider">
+            <Target className="w-3.5 h-3.5 text-forest-600" />
+            <span>1. Tactical Context</span>
           </div>
+          <p className="text-ink-primary text-xs leading-relaxed">
+            {explanation.why_it_matters}
+          </p>
+        </div>
 
-          {/* Section 2: POINT BREAKDOWN BY PLAYER */}
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold text-ink-secondary uppercase tracking-wider px-0.5">
-              Player Scoring On This Delivery:
+        {/* PILL 2: FANTASY IMPACT */}
+        <div className="p-3 rounded-md bg-white border border-forest-200/80 space-y-2 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1.5 text-forest-800 font-bold text-[10px] uppercase tracking-wider">
+              <Award className="w-3.5 h-3.5 text-forest-600" />
+              <span>2. Fantasy Impact</span>
             </div>
+            {ballDelta && ballDelta.fantasy_team_delta !== 0 && (
+              <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+                ballDelta.fantasy_team_delta > 0
+                  ? 'bg-forest-100 text-forest-800 border-forest-300'
+                  : 'bg-sport-wicketBg text-sport-wicket border-sport-wicketBorder'
+              }`}>
+                {ballDelta.fantasy_team_delta > 0 ? `+${ballDelta.fantasy_team_delta}` : ballDelta.fantasy_team_delta} pts team
+              </span>
+            )}
+          </div>
+          <p className="text-ink-primary text-xs leading-relaxed">
+            {explanation.fantasy_impact_explanation}
+          </p>
 
-            {ballDelta && ballDelta.player_deltas.length > 0 ? (
-              <div className="space-y-1.5">
-                {ballDelta.player_deltas.map((d) => (
-                  <div
-                    key={d.player_name}
-                    className="p-2.5 rounded-md bg-white border border-ink-border space-y-1 text-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="font-semibold text-ink-primary">{d.player_name}</span>
-                        {d.is_captain && (
-                          <span className="text-[9px] font-mono font-bold bg-forest-600 text-white px-1 rounded">
-                            CAPTAIN (2x)
-                          </span>
-                        )}
-                        {d.is_vice_captain && (
-                          <span className="text-[9px] font-mono font-bold bg-ink-primary text-white px-1 rounded">
-                            VICE-CAPTAIN (1.5x)
-                          </span>
-                        )}
-                      </div>
-                      <span
-                        className={`text-xs font-mono font-bold px-1.5 py-0.2 rounded border tabular-nums ${
-                          d.net_delta > 0
-                            ? 'bg-forest-100 text-forest-800 border-forest-300'
-                            : 'bg-sport-wicketBg text-sport-wicket border-sport-wicketBorder'
-                        }`}
-                      >
-                        {d.net_delta > 0 ? `+${d.net_delta}` : d.net_delta} pts
+          {/* Active Player Delta Micro-Cards */}
+          {ballDelta && ballDelta.player_deltas.length > 0 && (
+            <div className="pt-1.5 border-t border-ink-border/60 space-y-1">
+              {ballDelta.player_deltas.map((d) => (
+                <div
+                  key={d.player_name}
+                  className="flex items-center justify-between p-1.5 rounded bg-canvas border border-ink-border text-[11px]"
+                >
+                  <div className="flex items-center space-x-1.5 truncate">
+                    <span className="font-semibold text-ink-primary truncate">{d.player_name}</span>
+                    {d.is_captain && (
+                      <span className="text-[9px] font-mono font-bold bg-forest-600 text-white px-1 rounded shrink-0">
+                        C (2x)
                       </span>
-                    </div>
+                    )}
+                    {d.is_vice_captain && (
+                      <span className="text-[9px] font-mono font-bold bg-ink-primary text-white px-1 rounded shrink-0">
+                        VC (1.5x)
+                      </span>
+                    )}
+                    <span className="text-ink-muted text-[10px] truncate max-w-[120px] sm:max-w-none font-sans">
+                      ({d.reason})
+                    </span>
+                  </div>
+                  <span
+                    className={`font-mono font-bold text-xs shrink-0 ${
+                      d.net_delta > 0 ? 'text-forest-700' : 'text-sport-wicket'
+                    }`}
+                  >
+                    {d.net_delta > 0 ? `+${d.net_delta}` : d.net_delta} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-                    <div className="text-[11px] text-ink-secondary">{d.reason}</div>
+        {/* PILL 3: NEXT-BALL WATCHOUT */}
+        <div className="p-3 rounded-md bg-amber-50/60 border border-amber-200/80 space-y-1 shadow-2xs">
+          <div className="flex items-center space-x-1.5 text-amber-900 font-bold text-[10px] uppercase tracking-wider">
+            <Eye className="w-3.5 h-3.5 text-amber-700" />
+            <span>3. Next-Ball Watchout</span>
+          </div>
+          <p className="text-amber-950 text-xs leading-relaxed font-medium">
+            {explanation.next_ball_watchout ||
+              `Watch for tactical adjustment from ${currentDelivery.bowler} as ${currentDelivery.batter} prepares for the next ball.`}
+          </p>
+        </div>
 
-                    <div className="flex items-center justify-between text-[10px] font-mono text-ink-muted pt-1 border-t border-ink-border">
-                      <span>Prev: {d.previous_total} pts</span>
-                      <span>→</span>
-                      <span className="text-ink-primary font-semibold">New: {d.new_total} pts</span>
-                    </div>
+        {/* Applicable MCC Cricket Rule Card */}
+        {explanation.cricket_rule && (
+          <div className="p-2.5 rounded-md bg-canvas border border-ink-border space-y-1">
+            <div className="flex items-center space-x-1.5 text-ink-secondary font-semibold text-[10px] uppercase tracking-wider">
+              <BookOpen className="w-3 h-3 text-ink-muted" />
+              <span>Cricket Rule ({explanation.cricket_rule.law_name})</span>
+            </div>
+            <p className="text-[11px] text-ink-secondary leading-relaxed">
+              {explanation.cricket_rule.summary}
+            </p>
+          </div>
+        )}
+
+        {/* Evidence & Grounding Accordion Drawer */}
+        <div className="border border-forest-200/80 rounded-md bg-forest-50/40 overflow-hidden">
+          <button
+            onClick={() => setShowEvidence(!showEvidence)}
+            className="w-full p-2 flex items-center justify-between text-[10px] font-semibold text-forest-800 uppercase tracking-wider hover:bg-forest-50/80 transition-colors"
+          >
+            <span className="flex items-center space-x-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-forest-700" />
+              <span>Evidence Boundaries &amp; Data Grounding</span>
+            </span>
+            {showEvidence ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {showEvidence && (
+            <div className="p-2.5 pt-0 space-y-2 border-t border-forest-200/50 text-[11px]">
+              {/* Verified Facts */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-ink-secondary font-medium">Verified Source Events:</span>
+                {explanation.evidence?.grounded_in_data?.map((fact, idx) => (
+                  <div key={idx} className="flex items-start space-x-1.5 text-ink-primary">
+                    <CheckCircle2 className="w-3 h-3 text-forest-600 shrink-0 mt-0.5" />
+                    <span>{fact}</span>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="p-3 rounded-md bg-canvas border border-ink-border text-center text-ink-muted text-xs">
-                No fantasy scoring events occurred on this delivery.
-              </div>
-            )}
-          </div>
 
-          {/* Deterministic Rule Disclaimer */}
-          <div className="p-2.5 rounded-md bg-canvas border border-ink-border text-[11px] text-ink-secondary">
-            <span className="font-semibold text-forest-800 block text-[10px] uppercase">
-              Scoring Integrity Guarantee:
-            </span>
-            <p className="mt-0.5">
-              Fantasy points are calculated deterministically by Python against verified Dream11 rules.
-              The AI explanation engine never invents or calculates numbers.
-            </p>
-          </div>
+              {/* Unavailable Evidence Notice */}
+              <div className="pt-1.5 border-t border-forest-200/60 space-y-1">
+                <span className="text-[10px] text-ink-secondary font-medium">Unavailable in Data (Zero Fabrication):</span>
+                {explanation.evidence?.unavailable_evidence?.map((unav, idx) => (
+                  <div key={idx} className="flex items-start space-x-1.5 text-ink-muted">
+                    <AlertCircle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{unav}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Fan Takeaway Footer */}
-      <div className="p-2.5 rounded-md bg-forest-50 border border-forest-200/80 text-[11px] text-forest-900 font-medium">
+      <div className="p-2 rounded-md bg-forest-50 border border-forest-200/80 text-[11px] text-forest-950 font-medium">
         <span className="font-semibold text-forest-700 mr-1">Takeaway:</span>
         <span>{explanation.fan_takeaway}</span>
       </div>

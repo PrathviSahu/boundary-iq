@@ -6,7 +6,7 @@ from app.models.match import (
 )
 from app.models.fantasy import (
     PlayerFantasyScore, BreakdownItem, PlayerDelta,
-    BallFantasyImpact, FantasyTeamConfig
+    BallFantasyImpact, FantasyTeamConfig, OptimalCaptaincyComparison
 )
 from app.scoring.ruleset import RulesetConfig, DEFAULT_RULESET
 
@@ -1175,6 +1175,70 @@ class ReplayEngine:
         )
 
         return squad_scores, adjusted_delta_impact, round(team_total, 1), round(team_delta, 1)
+
+    def get_optimal_captaincy(
+        self, delivery_index: int, team_config: FantasyTeamConfig
+    ) -> OptimalCaptaincyComparison:
+        """Calculate retrospective optimal captain & vice-captain combination for user squad."""
+        idx = min(max(0, delivery_index), len(self.base_fantasy_snapshots) - 1)
+        base_scores = self.base_fantasy_snapshots[idx]
+
+        squad_players = [p for p in team_config.selected_players if p in base_scores]
+        if not squad_players:
+            squad_players = list(base_scores.keys())[:11]
+
+        base_sum = sum(base_scores[p].raw_points for p in squad_players)
+
+        curr_c = team_config.captain if team_config.captain in squad_players else squad_players[0]
+        remaining = [p for p in squad_players if p != curr_c]
+        curr_vc = team_config.vice_captain if team_config.vice_captain in remaining else (remaining[0] if remaining else curr_c)
+
+        curr_c_raw = base_scores[curr_c].raw_points if curr_c in base_scores else 0.0
+        curr_vc_raw = base_scores[curr_vc].raw_points if curr_vc in base_scores else 0.0
+
+        c_mult = self.ruleset.captain_multiplier
+        vc_mult = self.ruleset.vice_captain_multiplier
+
+        curr_c_pts = round(curr_c_raw * c_mult, 1)
+        curr_vc_pts = round(curr_vc_raw * vc_mult, 1)
+        current_combo_points = round(curr_c_pts + curr_vc_pts, 1)
+        current_team_total = round(base_sum + (c_mult - 1.0) * curr_c_raw + (vc_mult - 1.0) * curr_vc_raw, 1)
+
+        sorted_players = sorted(squad_players, key=lambda p: base_scores[p].raw_points, reverse=True)
+        opt_c = sorted_players[0]
+        opt_vc = sorted_players[1] if len(sorted_players) > 1 else sorted_players[0]
+
+        opt_c_raw = base_scores[opt_c].raw_points
+        opt_vc_raw = base_scores[opt_vc].raw_points
+
+        opt_c_pts = round(opt_c_raw * c_mult, 1)
+        opt_vc_pts = round(opt_vc_raw * vc_mult, 1)
+        optimal_combo_points = round(opt_c_pts + opt_vc_pts, 1)
+        optimal_team_total = round(base_sum + (c_mult - 1.0) * opt_c_raw + (vc_mult - 1.0) * opt_vc_raw, 1)
+        point_diff = round(optimal_team_total - current_team_total, 1)
+
+        is_already_optimal = (point_diff <= 0.0) or (opt_c == curr_c and opt_vc == curr_vc)
+        if is_already_optimal:
+            point_diff = 0.0
+            summary = f"Peak Captaincy! Your C/VC combo ({curr_c} & {curr_vc}) is maximizing points ({current_combo_points} pts)."
+        else:
+            summary = (
+                f"What-If: {opt_c} (C, {opt_c_pts} pts) & {opt_vc} (VC, {opt_vc_pts} pts) "
+                f"would yield +{point_diff} more pts so far."
+            )
+
+        return OptimalCaptaincyComparison(
+            current_captain=curr_c,
+            current_vice_captain=curr_vc,
+            current_combo_points=current_combo_points,
+            optimal_captain=opt_c,
+            optimal_vice_captain=opt_vc,
+            optimal_combo_points=optimal_combo_points,
+            optimal_team_total=optimal_team_total,
+            point_difference=point_diff,
+            is_already_optimal=is_already_optimal,
+            summary=summary
+        )
 
     def get_key_moments(self, category: Optional[str] = None) -> List[KeyMoment]:
         if not category or category.lower() == 'all':

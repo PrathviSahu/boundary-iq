@@ -6,48 +6,35 @@ from pydantic import BaseModel, Field
 from app.models.match import MatchMetadata, Delivery, SnapshotState, KeyMoment, PlayerInfo
 from app.models.fantasy import (
     RulesetConfig, PlayerFantasyScore, BallFantasyImpact,
-    FantasyTeamConfig, FantasyScoreResponse
+    FantasyTeamConfig, FantasyScoreResponse, OptimalCaptaincyComparison
 )
 from app.models.explanation import EventExplanation
 from app.replay.engine import ReplayEngine
 from app.scoring.ruleset import DEFAULT_RULESET
 from app.ai.service import AIExplanationService
+from app.db.repository import DatabaseManager, DEFAULT_CONFIG
 
 router = APIRouter()
 
 # Default demo squad
-DEFAULT_FANTASY_SQUAD = FantasyTeamConfig(
-    selected_players=[
-        "V Kohli",
-        "JJ Bumrah",
-        "RG Sharma",
-        "HH Pandya",
-        "AR Patel",
-        "Arshdeep Singh",
-        "Q de Kock",
-        "H Klaasen",
-        "DA Miller",
-        "K Rabada",
-        "KA Maharaj"
-    ],
-    captain="V Kohli",
-    vice_captain="JJ Bumrah"
-)
+DEFAULT_FANTASY_SQUAD = DEFAULT_CONFIG
 
-# User-saved fantasy teams store (in-memory for MVP)
-saved_fantasy_teams: Dict[str, FantasyTeamConfig] = {
-    "default": DEFAULT_FANTASY_SQUAD,
-    "demo_team_1": DEFAULT_FANTASY_SQUAD
-}
+# Database manager for persistent fantasy teams
+db_manager: Optional[DatabaseManager] = None
 
 # The Replay Engine and AI service will be attached to the router / app state
 engine: Optional[ReplayEngine] = None
 ai_service: Optional[AIExplanationService] = None
 
-def init_api_services(replay_engine: ReplayEngine, explanation_svc: AIExplanationService):
-    global engine, ai_service
+def init_api_services(
+    replay_engine: ReplayEngine,
+    explanation_svc: AIExplanationService,
+    db: Optional[DatabaseManager] = None
+):
+    global engine, ai_service, db_manager
     engine = replay_engine
     ai_service = explanation_svc
+    db_manager = db or DatabaseManager()
 
 
 def _validate_match_id(match_id: str) -> None:
@@ -69,20 +56,39 @@ def _validate_delivery_index(delivery_index: int) -> None:
                    f"(valid: 0–{len(engine.deliveries) - 1})"
         )
 
+def _get_db() -> DatabaseManager:
+    global db_manager
+    if db_manager is None:
+        db_manager = DatabaseManager()
+    return db_manager
+
 @router.get("/health")
 def health_check():
     has_gemini = bool(os.getenv("GEMINI_API_KEY", "").strip())
     model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    db_ok = _get_db().check_health()
     return {
-        "status": "healthy",
+        "status": "healthy" if db_ok and engine else "degraded",
         "app": "BoundaryIQ",
         "version": "1.0.0",
+        "database_connected": db_ok,
         "gemini_ai_enabled": has_gemini,
         "gemini_model": model_name,
         "match_id": engine.metadata.match_id if engine else None,
         "match_name": engine.metadata.event_name if engine else None,
         "total_deliveries": len(engine.deliveries) if engine else 0
     }
+
+@router.get("/ready")
+def readiness_check():
+    db_ok = _get_db().check_health()
+    engine_ok = bool(engine and engine.metadata and len(engine.deliveries) > 0)
+    if not (db_ok and engine_ok):
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "database": db_ok, "engine": engine_ok}
+        )
+    return {"status": "ready", "database": "healthy", "engine": "loaded", "deliveries": len(engine.deliveries)}
 
 @router.get("/matches")
 def get_matches():
@@ -139,26 +145,39 @@ def save_fantasy_team(req: TeamCreationRequest):
     if req.config.captain == req.config.vice_captain:
         raise HTTPException(status_code=400, detail="Captain and Vice-Captain must be different")
 
-    saved_fantasy_teams[req.team_id] = req.config
+    _get_db().save_team(req.team_id, req.config)
     return {"status": "saved", "team_id": req.team_id, "config": req.config}
 
-@router.get("/fantasy/teams/{team_id}/score")
+@router.get("/fantasy/teams")
+def list_fantasy_teams():
+    return _get_db().list_teams()
+
+@router.get("/fantasy/teams/{team_id}")
+def get_fantasy_team(team_id: str):
+    team = _get_db().get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail=f"Team '{team_id}' not found")
+    return {"team_id": team_id, "config": team}
+
+@router.get("/fantasy/teams/{team_id}/score", response_model=FantasyScoreResponse)
 def get_team_score(team_id: str, delivery_index: int = Query(0)):
     if not engine:
         raise HTTPException(status_code=500, detail="Engine not ready")
     _validate_delivery_index(delivery_index)
-    team = saved_fantasy_teams.get(team_id, DEFAULT_FANTASY_SQUAD)
+    team = _get_db().get_team(team_id) or DEFAULT_FANTASY_SQUAD
     squad_scores, ball_delta, team_total, team_delta = engine.get_fantasy_scores_for_team(
         delivery_index, team
     )
     dlv = engine.deliveries[delivery_index] if delivery_index < len(engine.deliveries) else None
+    optimal_c = engine.get_optimal_captaincy(delivery_index, team)
     return FantasyScoreResponse(
         delivery_index=delivery_index,
         over_display=dlv.over_display if dlv else "0.0",
         player_scores=squad_scores,
         ball_delta=ball_delta,
         team_total=team_total,
-        team_delta=team_delta
+        team_delta=team_delta,
+        optimal_captaincy=optimal_c
     )
 
 @router.post("/fantasy/scores/{delivery_index}", response_model=FantasyScoreResponse)
@@ -170,13 +189,15 @@ def compute_custom_scores(delivery_index: int, team_config: Optional[FantasyTeam
         delivery_index, team
     )
     dlv = engine.deliveries[delivery_index]
+    optimal_c = engine.get_optimal_captaincy(delivery_index, team)
     return FantasyScoreResponse(
         delivery_index=delivery_index,
         over_display=dlv.over_display,
         player_scores=squad_scores,
         ball_delta=ball_delta,
         team_total=team_total,
-        team_delta=team_delta
+        team_delta=team_delta,
+        optimal_captaincy=optimal_c
     )
 
 # --- AI & Match Event Explainer Endpoints ---

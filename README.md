@@ -2,9 +2,36 @@
 
 > **"Your match. Your players. Every moment explained."**
 
-BoundaryIQ is an AI-powered cricket match companion for fantasy sports fans. It connects two specialized engines to solve the cricket fan's dilemma:
-1. **Deterministic Cricket & Fantasy Engine (Python/FastAPI):** Calculates exact ball-by-ball match states, player statistics, and fantasy points using verified Dream11 T20 scoring rules. Pre-computes immutable snapshots in $O(1)$ lookup time so replay operations are instantaneous.
-2. **AI Explanation Engine (Google Gen AI SDK):** Powered by `gemini-3.5-flash-lite` via the official `google-genai` Python SDK, returning structured JSON schemas that explain cricket laws, match context, and fantasy impacts without ever fabricating ball-tracking evidence or inventing fantasy points.
+BoundaryIQ is an AI-powered cricket match replay and fantasy companion designed for live sports fans. Built for the **Dream11 Forward Deployed Engineer Intern** assignment, it bridges the gap between fast-moving cricket broadcasts and complex fantasy sports calculations.
+
+---
+
+## 📌 Executive Summary: Dream11 FDE Evaluation
+
+### 1. What fan problem does Boundary IQ solve?
+During a live, high-stakes T20 match, fantasy cricket fans face cognitive overload and anxiety. While broadcast feeds provide raw scores and commentary, and fantasy apps display aggregate leaderboard point totals, neither platform answers the three critical questions every fan asks when the game turns:
+1. **What just happened?** Why was that delivery tactically significant?
+2. **Why did my fantasy points change?** Which player on my squad earned or lost points, and under which specific scoring rule?
+3. **What could I have done differently?** How much is my captaincy choice costing me right now compared to the optimal lineup?
+
+BoundaryIQ solves this by providing ball-by-ball transparency, combining deterministic scoring with natural language tactical context.
+
+### 2. How does the product help fans?
+- **"Why My Points Changed" Ball Delta Badges:** Fans immediately see per-player impact on the active delivery (e.g. `+58.5 pts [VC 1.5x]` with granular subtext: *Dot ball bowled (+1), Wicket taken (+30), Bowled/LBW bonus (+8)*).
+- **"What-If Captaincy" Instant Regret Calculator:** Evaluates all possible Captain (2x) and Vice-Captain (1.5x) combinations up to the current delivery in $O(11 \log 11)$ time, calculating the exact point regret delta (e.g., `+21 PTS DIFF` if Bumrah had been Captain instead of Rohit).
+- **3-Pillar Scannable Explainer:** Breaks down each moment into three quick-to-read sections:
+  1. *Tactical Context:* Match stakes, run rate pressure, and pitch dynamics.
+  2. *Fantasy Impact:* Active squad point deltas with multiplier breakdowns.
+  3. *Next-Ball Watchout:* Tactical matchups and momentum triggers to watch on the very next ball.
+- **Zero-Hallucination Integrity:** Pure separation of concerns. Fantasy points and match stats are computed deterministically from verified source data; LLMs never calculate, estimate, or modify point scores.
+
+### 3. Which AI tools and models were used?
+- **Model:** `gemini-2.5-flash` / `gemini-3.5-flash-lite` via the official Google Gen AI Python SDK (`google-genai`).
+- **Structured Schema:** Strict Pydantic JSON schema (`EventExplanation`) enforcing four distinct fields: summary, tactical context, fantasy impact, and next-ball watchout.
+- **Production Guardrails:**
+  - Bounded concurrency with a 4-worker thread pool and non-blocking admission semaphore to prevent overload.
+  - Squad-isolated LRU Cache (capacity 500) keyed by `(match_id, delivery_index, ruleset, captain, vice_captain)`.
+  - Curated deterministic fallback explanations for 5 iconic turning points (Bumrah's wickets, Suryakumar's catch, Klaasen's counter-attack, and Kohli's 76) ensuring instant, high-quality responses even during network interruptions.
 
 ---
 
@@ -14,24 +41,29 @@ BoundaryIQ is an AI-powered cricket match companion for fantasy sports fans. It 
                       ┌────────────────────────────────────────┐
                       │          React 18 + Vite UI            │
                       │  Tailwind CSS • Lucide • TypeScript    │
+                      │  • Ball Delta Badges & Regret Card     │
+                      │  • 3-Pillar Scannable Explainer        │
                       └──────────────────┬─────────────────────┘
                                          │ REST API
                                          ▼
                       ┌────────────────────────────────────────┐
                       │          FastAPI Backend Server        │
+                      │  • Proxy-Safe Rate Limiter (Sliding)   │
+                      │  • 100 KB Payload Guard • /api/ready   │
                       └──────────┬──────────────────┬──────────┘
                                  │                  │
                 ┌────────────────┴──────┐   ┌───────┴─────────────────┐
                 │ Deterministic Engine  │   │  AI Explanation Engine  │
                 │ • O(1) Snapshot Index │   │  • google-genai SDK     │
                 │ • Dream11 T20 Rules   │   │  • gemini-3.5-flash-lite│
-                │ • Cricsheet Parser    │   │  • Evidence Boundaries  │
-                │ • Cumulative Tracker  │   │  • Response Schema JSON │
+                │ • What-If Regret Calc │   │  • Bounded Worker Pool  │
+                │ • Cricsheet Parser    │   │  • LRU Cache (Cap: 500) │
                 └──────────┬────────────┘   └───────┬─────────────────┘
                            │                        │
-                           ▼                        ▼
-                 Cricsheet JSON Match         Cache & Fallback
-                 (ODC-BY 1.0 License)         (Deterministic Law)
+            ┌──────────────┴──────────────┐         ▼
+            ▼                             ▼    Curated Fallback
+  Cricsheet Match JSON             SQLite Database  (5 Iconic Moments)
+  (ODC-BY 1.0 License)         (WAL Mode • Teams)
 ```
 
 ---
@@ -114,14 +146,24 @@ Cricsheet provides structured match events (runs, wickets, extras, fielder credi
 
 ---
 
-## 🤖 AI Integration & Rate-Limiting Controls
+## 🛡️ Production Readiness & Resilience
 
-- **SDK:** Official Google Gen AI Python SDK (`google-genai`).
-- **Model:** `gemini-3.5-flash-lite` (pinned stable version, configurable via `GEMINI_MODEL`).
-- **Output:** Structured Pydantic JSON validation (`EventExplanation`).
-- **In-Memory Caching:** `(match_id, delivery_index, ruleset_version)` prevents duplicate API invocations.
-- **Autoplay Protection:** During rapid replay scrubbing or autoplay, instant deterministic summaries are served in $O(1)$ without flooding the Gemini API. Live AI generation triggers when paused or upon clicking key moments.
-- **Graceful Fallback:** If `GEMINI_API_KEY` is not configured or an API error occurs, BoundaryIQ serves comprehensive, MCC Law-grounded deterministic explanations with `engine_source="deterministic_rules_engine"`.
+Phase 2 hardened BoundaryIQ for live production deployment:
+
+1. **Persistent SQLite Database:**
+   - Managed via Python standard library `sqlite3` (`app/db/repository.py`) with zero external ORM overhead.
+   - Configured with Write-Ahead Logging (`PRAGMA journal_mode=WAL`) and `PRAGMA synchronous=NORMAL` for concurrent reads/writes and crash resilience.
+   - User-customized fantasy squads survive server restarts and scale seamlessly.
+2. **Proxy-Safe Security & Rate Limiting:**
+   - Reads the leftmost untrusted IP from `X-Forwarded-For` when behind proxies (Render, Cloudflare, AWS ALB), preventing rate limit spoofing.
+   - Sliding-window algorithm bounds burst traffic.
+   - Request size limiting middleware rejects payloads $> 100\text{ KB}$ with HTTP 413.
+3. **Health & Readiness Endpoints:**
+   - `/api/health`: Immediate liveness check reporting uptime, match engine status, and database connectivity.
+   - `/api/ready`: Readiness probe verifying data file integrity, snapshot pre-computation (251 deliveries), and database read/write health.
+4. **Cloud Deployment Artifacts:**
+   - Root `Procfile` and `backend/Procfile` configured for zero-configuration deployment on Render, Railway, or Heroku.
+   - Frontend includes automatic cold-start detection: displays a friendly spinner and status banner if the backend is waking from serverless hibernation.
 
 ---
 
@@ -142,7 +184,7 @@ pip install -r requirements.txt
 echo "GEMINI_API_KEY=your_key_here" >> .env
 echo "GEMINI_MODEL=gemini-3.5-flash-lite" >> .env
 
-# Run pytest unit tests (55 tests)
+# Run pytest unit & regression tests (91 tests)
 pytest -v
 
 # Start FastAPI server on port 8001
@@ -161,25 +203,44 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## 🧪 Test Suite
+## 🧪 Comprehensive Test Suite
 
-The test suite consists of **55 comprehensive unit and regression tests** across fantasy scoring, match replay, snapshot immutability, Cricsheet data correctness, API endpoints, rate limiting, and CORS security hardening:
+BoundaryIQ is backed by **91 passing backend unit, regression, and security tests**, alongside automated Playwright browser E2E tests:
+
 ```bash
 cd boundary-iq/backend
 ./venv/bin/pytest -v
 ```
-Test categories include:
-- `test_api.py` (10 tests): Health check, match metadata, deliveries, snapshot retrieval, key moments, player rosters, ruleset verification, fantasy squad persistence, team score compute, and grounded AI explanation endpoint.
-- `test_cricsheet_correctness.py` (16 tests): Cricsheet edge cases including non-boundary fours/sixes (overthrows / all-run boundaries with bonus withheld), unverified direct-hit run-outs, completed 6-ball maiden over rules, multi-wicket deliveries, no-ball boundaries, and shared fielder points.
-- `test_fantasy_engine.py` (10 tests): Dream11 standard scoring logic covering starting XI bonus, captain (2x) and vice-captain (1.5x) multipliers, batting milestones (25, 50, 75, 100), duck penalties, dot ball rewards, wicket & LBW/bowled bonuses, catches, and bowling wicket hauls.
+
+### Backend Test Coverage Breakdown (91 Tests)
+- `test_production_readiness.py` (7 tests): SQLite persistence across reboots, What-If Captaincy calculation correctness, 3-pillar response schema validation, `/api/ready` readiness probe, payload limit (HTTP 413), proxy IP parsing, and curated iconic moment fallback reliability.
+- `test_phase1_regressions.py` (2 tests): LRU cache eviction boundary (500 entries) and executor admission control / semaphore release.
+- `test_api.py` (10 tests): Health check, match metadata, deliveries, snapshot retrieval, key moments, player rosters, ruleset verification, fantasy squad persistence, and team score computation.
+- `test_cricsheet_correctness.py` (16 tests): Non-boundary fours/sixes (overthrows / all-run boundaries with bonus withheld), unverified direct-hit run-outs, completed 6-ball maiden over rules, multi-wicket deliveries, no-ball boundaries, and shared fielder points.
+- `test_fantasy_engine.py` (10 tests): Dream11 standard scoring logic covering starting XI bonus, captain (2x) and vice-captain (1.5x) multipliers, batting milestones, duck penalties, dot ball rewards, wicket & LBW/bowled bonuses, catches, and bowling wicket hauls.
 - `test_replay_engine.py` (11 tests): Pre-computed snapshot state consistency, step back/forward determinism, captaincy immutability, key moment categorization, and Cricsheet delivery audit attributes.
-- `test_security.py` (8 tests): Security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options), CORS exact origin allowlisting, project-scoped Vercel preview regex matching, untrusted origin rejection, sliding window rate limiting, and in-memory explanation caching.
+- `test_security.py` (8 tests): Security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options), CORS exact origin allowlisting, project-scoped Vercel preview regex matching, untrusted origin rejection, and sliding window rate limiting.
+- `test_reliability.py` (27 tests): Delivery boundary validation, match ID isolation, cache key squad fingerprinting, negative indexing guards, and executor concurrency limits.
+
+### Automated Verification Script
+Run the end-to-end product verification suite:
+```bash
+cd boundary-iq/backend
+./venv/bin/python verify_product.py
+```
+*Validates match metadata, 251 delivery snapshots, key moments, fantasy ruleset, custom squad persistence, team scores, and deterministic explanations across 7 automated test suites.*
+
+### Frontend E2E Race Condition & Scrubbing Test
+Run the Playwright asynchronous sequence and cancellation verification:
+```bash
+python3 frontend/tests/e2e/test_race_conditions.py
+```
+*Simulates rapid scrubbing across deliveries, verifying `AbortController` cancellation, monotonic request ID ordering, and UI state consistency.*
 
 ---
 
 ## ⚖️ Legal & Attribution Disclaimer
 
-BoundaryIQ is an independent research prototype developed for sports analytics and product demonstration.
+BoundaryIQ is an independent research prototype developed for sports analytics and product demonstration for the Dream11 Forward Deployed Engineer Intern assignment.
 - It is **not** affiliated with, endorsed by, or sponsored by **Dream11**, **Sporta Technologies Pvt. Ltd.**, **BCCI**, **ICC**, or any cricket governing body.
 - Ball-by-ball match data is provided by **Cricsheet** (https://cricsheet.org) under the **Open Data Commons Attribution License (ODC-BY 1.0)**.
-

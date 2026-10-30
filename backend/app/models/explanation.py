@@ -30,5 +30,9 @@ class EventExplanation(BaseModel):
         default_factory=list,
         description="Explicit notice of data limitations."
     )
+    next_ball_watchout: str = Field(
+        default="",
+        description="Tactical matchup or momentum factor worth watching on next ball."
+    )
     fan_takeaway: str = Field(description="One-sentence takeaway for cricket fans.")
     engine_source: str = Field(default="deterministic_rules_engine", description="gemini_ai or deterministic_rules_engine")

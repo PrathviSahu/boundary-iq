@@ -1,11 +1,18 @@
 import os
 import time
+import logging
 from collections import defaultdict
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from dotenv import load_dotenv
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("boundary_iq")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Load .env from backend directory or project root
@@ -17,6 +24,7 @@ from app.replay.engine import ReplayEngine
 from app.ai.service import AIExplanationService
 from app.api.routes import router, init_api_services
 from app.scoring.ruleset import DEFAULT_RULESET
+from app.db.repository import DatabaseManager
 
 app = FastAPI(
     title="BoundaryIQ API",
@@ -93,10 +101,25 @@ limiter = SlidingWindowRateLimiter(
 )
 
 @app.middleware("http")
-async def rate_limit_middleware(request, call_next):
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    # Exempt health check and openapi docs from rate limiting
-    if not request.url.path.startswith("/api/health") and not request.url.path.startswith("/docs") and not request.url.path.startswith("/openapi.json"):
+async def rate_limit_middleware(request: Request, call_next):
+    # Enforce 100 KB request body limit
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 100 * 1024:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Payload too large. Maximum request size is 100 KB."}
+        )
+
+    # Proxy-safe IP extraction (leftmost IP in X-Forwarded-For)
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # Exempt health, readiness, and openapi docs from rate limiting
+    exempt_paths = ("/api/health", "/api/ready", "/docs", "/openapi.json")
+    if not any(request.url.path.startswith(p) for p in exempt_paths):
         allowed, retry_after = limiter.check(client_ip, request.url.path)
         if not allowed:
             return JSONResponse(
@@ -105,6 +128,15 @@ async def rate_limit_middleware(request, call_next):
                 headers={"Retry-After": str(retry_after)}
             )
     return await call_next(request)
+
+# Global Unhandled Error Handler to prevent stack trace leakage in production
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. Please try again later."}
+    )
 
 # Defense-in-depth Security Headers Middleware
 @app.middleware("http")
@@ -143,12 +175,13 @@ if not match_data_file:
         "Cricsheet match file 'data/ind_sa_t20wc_2024_final.json' not found."
     )
 
-print(f"[BoundaryIQ] Initializing Replay Engine with: {match_data_file}")
+logger.info(f"Initializing Replay Engine with match data: {match_data_file}")
 replay_engine = ReplayEngine(str(match_data_file), ruleset=DEFAULT_RULESET)
 ai_service = AIExplanationService()
+db_manager = DatabaseManager()
 
-# Initialize API router services
-init_api_services(replay_engine, ai_service)
+# Initialize API router services with persistent DB
+init_api_services(replay_engine, ai_service, db_manager)
 
 # Include API Router
 app.include_router(router, prefix="/api")

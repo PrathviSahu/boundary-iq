@@ -10,6 +10,7 @@ import {
   PlayerFantasyScore,
   BallFantasyImpact,
   EventExplanation,
+  OptimalCaptaincyComparison,
 } from './types';
 import {
   fetchHealth,
@@ -75,17 +76,20 @@ export const App: React.FC = () => {
   const [teamTotal, setTeamTotal] = useState<number>(0);
   const [teamDelta, setTeamDelta] = useState<number>(0);
   const [currentDeltaImpact, setCurrentDeltaImpact] = useState<BallFantasyImpact | null>(null);
+  const [optimalCaptaincy, setOptimalCaptaincy] = useState<OptimalCaptaincyComparison | null>(null);
 
   // Explanation State
   const [explanation, setExplanation] = useState<EventExplanation | null>(null);
   const [isExplaining, setIsExplaining] = useState<boolean>(false);
 
-  // Modals
+  // Modals & Warming Status
   const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
   const [isRulesOpen, setIsRulesOpen] = useState<boolean>(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState<boolean>(false);
   const [isContactOpen, setIsContactOpen] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isWarmingUp, setIsWarmingUp] = useState<boolean>(false);
+  const [isLoadingInitial, setIsLoadingInitial] = useState<boolean>(true);
 
   // Refs for timer & rate-limiting AI during fast playback
   const isPlayingRef = useRef(isPlaying);
@@ -113,10 +117,16 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // 1. Initial Data Loading
+  // 1. Initial Data Loading with Cold-Start Detection
   useEffect(() => {
+    let isCancelled = false;
+    const warmupTimer = setTimeout(() => {
+      if (!isCancelled) setIsWarmingUp(true);
+    }, 1500);
+
     async function initData() {
       try {
+        setIsLoadingInitial(true);
         const [health, matches, dlvList, pList, rSet, kmList] = await Promise.all([
           fetchHealth(),
           fetchMatches(),
@@ -125,6 +135,11 @@ export const App: React.FC = () => {
           fetchRuleset(matchId),
           fetchKeyMoments(matchId, 'all'),
         ]);
+
+        if (isCancelled) return;
+        clearTimeout(warmupTimer);
+        setIsWarmingUp(false);
+        setIsLoadingInitial(false);
 
         setGeminiActive(health.gemini_ai_enabled);
         setMetadata(matches[0] || null);
@@ -136,11 +151,25 @@ export const App: React.FC = () => {
         // Load initial ball (0)
         await loadBallState(0, DEFAULT_TEAM);
       } catch (err: any) {
+        if (isCancelled) return;
+        clearTimeout(warmupTimer);
+        setIsWarmingUp(false);
+        setIsLoadingInitial(false);
         console.error('Initialization error:', err);
-        setErrorMsg('Failed to initialize BoundaryIQ. Ensure backend is running at http://localhost:8000');
+        const isHtmlTrap = err?.message?.includes('<!DOCTYPE') || err?.message?.includes('JSON');
+        setErrorMsg(
+          isHtmlTrap
+            ? 'Backend returned HTML instead of API data. Ensure VITE_API_BASE_URL points to the deployed backend URL on Vercel.'
+            : 'Unable to connect to BoundaryIQ backend API. Verify the server is running on port 8001.'
+        );
       }
     }
     initData();
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(warmupTimer);
+    };
   }, [matchId]);
 
   // 2. Load Delivery State in O(1)
@@ -169,6 +198,7 @@ export const App: React.FC = () => {
         setTeamTotal(scoresData.team_total);
         setTeamDelta(scoresData.team_delta);
         setCurrentDeltaImpact(scoresData.ball_delta);
+        setOptimalCaptaincy(scoresData.optimal_captaincy || null);
 
         // If not playing at high speed, trigger explanation with signal & requestId guard.
         if (!isPlayingRef.current) {
@@ -332,6 +362,21 @@ export const App: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 py-4 sm:p-5 lg:p-6 space-y-4 min-w-0">
+        {/* Cold-start Warming Indicator */}
+        {isWarmingUp && isLoadingInitial && !errorMsg && (
+          <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between animate-pulse">
+            <div className="flex items-center space-x-2">
+              <RefreshCw className="w-4 h-4 text-amber-700 animate-spin shrink-0" />
+              <span>
+                <strong>Syncing match telemetry...</strong> Connecting to backend service (spins up in ~15-30s if idle).
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded font-semibold">
+              Connecting
+            </span>
+          </div>
+        )}
+
         {/* Error Alert */}
         {errorMsg && (
           <div className="p-3 rounded-md bg-sport-wicketBg border border-sport-wicketBorder text-sport-wicket text-xs flex items-center justify-between">
@@ -375,6 +420,7 @@ export const App: React.FC = () => {
               teamDelta={teamDelta}
               currentDeltaImpact={currentDeltaImpact}
               teamConfig={teamConfig}
+              optimalCaptaincy={optimalCaptaincy}
               onOpenCustomizer={() => setIsCustomizerOpen(true)}
               onSelectPreset={handleSelectPreset}
             />

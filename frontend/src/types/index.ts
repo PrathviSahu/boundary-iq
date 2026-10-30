@@ -210,6 +210,19 @@ export interface FantasyTeamConfig {
   vice_captain: string;
 }
 
+export interface OptimalCaptaincyComparison {
+  current_captain: string;
+  current_vice_captain: string;
+  current_combo_points: number;
+  optimal_captain: string;
+  optimal_vice_captain: string;
+  optimal_combo_points: number;
+  optimal_team_total: number;
+  point_difference: number;
+  is_already_optimal: boolean;
+  summary: string;
+}
+
 export interface FantasyScoreResponse {
   delivery_index: number;
   over_display: string;
@@ -217,6 +230,7 @@ export interface FantasyScoreResponse {
   ball_delta: BallFantasyImpact;
   team_total: number;
   team_delta: number;
+  optimal_captaincy?: OptimalCaptaincyComparison | null;
 }
 
 export interface EvidenceBoundary {
@@ -241,6 +255,7 @@ export interface EventExplanation {
   cricket_rule: RuleExplanation;
   evidence: EvidenceBoundary;
   data_limitations: string[];
+  next_ball_watchout?: string;
   fan_takeaway: string;
   engine_source: 'gemini_ai' | 'deterministic_rules_engine';
 }
