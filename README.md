@@ -4,7 +4,7 @@
 
 BoundaryIQ is an AI-powered cricket match companion for fantasy sports fans. It connects two specialized engines to solve the cricket fan's dilemma:
 1. **Deterministic Cricket & Fantasy Engine (Python/FastAPI):** Calculates exact ball-by-ball match states, player statistics, and fantasy points using verified Dream11 T20 scoring rules. Pre-computes immutable snapshots in $O(1)$ lookup time so replay operations are instantaneous.
-2. **AI Explanation Engine (Google Gen AI SDK):** Powered by `gemini-3.8-flash` via the official `google-genai` Python SDK, returning structured JSON schemas that explain cricket laws, match context, and fantasy impacts without ever fabricating ball-tracking evidence or inventing fantasy points.
+2. **AI Explanation Engine (Google Gen AI SDK):** Powered by `gemini-3.5-flash-lite` via the official `google-genai` Python SDK, returning structured JSON schemas that explain cricket laws, match context, and fantasy impacts without ever fabricating ball-tracking evidence or inventing fantasy points.
 
 ---
 
@@ -24,7 +24,7 @@ BoundaryIQ is an AI-powered cricket match companion for fantasy sports fans. It 
                 ┌────────────────┴──────┐   ┌───────┴─────────────────┐
                 │ Deterministic Engine  │   │  AI Explanation Engine  │
                 │ • O(1) Snapshot Index │   │  • google-genai SDK     │
-                │ • Dream11 T20 Rules   │   │  • gemini-3.8-flash     │
+                │ • Dream11 T20 Rules   │   │  • gemini-3.5-flash-lite│
                 │ • Cricsheet Parser    │   │  • Evidence Boundaries  │
                 │ • Cumulative Tracker  │   │  • Response Schema JSON │
                 └──────────┬────────────┘   └───────┬─────────────────┘
@@ -117,7 +117,7 @@ Cricsheet provides structured match events (runs, wickets, extras, fielder credi
 ## 🤖 AI Integration & Rate-Limiting Controls
 
 - **SDK:** Official Google Gen AI Python SDK (`google-genai`).
-- **Model:** `gemini-3.8-flash` (configurable via `GEMINI_MODEL`).
+- **Model:** `gemini-3.5-flash-lite` (pinned stable version, configurable via `GEMINI_MODEL`).
 - **Output:** Structured Pydantic JSON validation (`EventExplanation`).
 - **In-Memory Caching:** `(match_id, delivery_index, ruleset_version)` prevents duplicate API invocations.
 - **Autoplay Protection:** During rapid replay scrubbing or autoplay, instant deterministic summaries are served in $O(1)$ without flooding the Gemini API. Live AI generation triggers when paused or upon clicking key moments.
@@ -140,9 +140,9 @@ pip install -r requirements.txt
 
 # (Optional) Set your Gemini API Key in .env
 echo "GEMINI_API_KEY=your_key_here" >> .env
-echo "GEMINI_MODEL=gemini-3.8-flash" >> .env
+echo "GEMINI_MODEL=gemini-3.5-flash-lite" >> .env
 
-# Run pytest unit tests (42 tests)
+# Run pytest unit tests (55 tests)
 pytest -v
 
 # Start FastAPI server on port 8001
@@ -163,20 +163,17 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## 🧪 Test Suite
 
-The test suite consists of 42 unit tests across scoring, replay, snapshots, Cricsheet data correctness, and API:
+The test suite consists of **55 comprehensive unit and regression tests** across fantasy scoring, match replay, snapshot immutability, Cricsheet data correctness, API endpoints, rate limiting, and CORS security hardening:
 ```bash
 cd boundary-iq/backend
 ./venv/bin/pytest -v
 ```
 Test categories include:
-- `test_boundaries_scoring`: Boundary 4s and 6s point calculations.
-- `test_cricsheet_correctness`: Non-boundary fours/sixes, unverified direct-hit run-outs, completed maiden overs, and multi-wicket event parsing.
-- `test_wickets_and_bowled_bonus`: Wickets, LBW, and bowled bonuses.
-- `test_milestone_awarded_exactly_once`: Verifies 30/50 run milestones trigger once and never duplicate.
-- `test_captain_and_vice_captain_immutability`: Ensures 2x/1.5x multipliers apply without mutating player base scores.
-- `test_snapshot_o1_retrieval`: Forward and backward stepping consistency in $O(1)$.
-- `test_key_moments_filters`: Pre-indexed key moments (wickets, boundaries, milestones).
-- `test_explain_endpoint`: Evidence boundaries and absence of DRS hallucinations.
+- `test_api.py` (10 tests): Health check, match metadata, deliveries, snapshot retrieval, key moments, player rosters, ruleset verification, fantasy squad persistence, team score compute, and grounded AI explanation endpoint.
+- `test_cricsheet_correctness.py` (16 tests): Cricsheet edge cases including non-boundary fours/sixes (overthrows / all-run boundaries with bonus withheld), unverified direct-hit run-outs, completed 6-ball maiden over rules, multi-wicket deliveries, no-ball boundaries, and shared fielder points.
+- `test_fantasy_engine.py` (10 tests): Dream11 standard scoring logic covering starting XI bonus, captain (2x) and vice-captain (1.5x) multipliers, batting milestones (25, 50, 75, 100), duck penalties, dot ball rewards, wicket & LBW/bowled bonuses, catches, and bowling wicket hauls.
+- `test_replay_engine.py` (11 tests): Pre-computed snapshot state consistency, step back/forward determinism, captaincy immutability, key moment categorization, and Cricsheet delivery audit attributes.
+- `test_security.py` (8 tests): Security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options), CORS exact origin allowlisting, project-scoped Vercel preview regex matching, untrusted origin rejection, sliding window rate limiting, and in-memory explanation caching.
 
 ---
 
