@@ -72,10 +72,10 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
         </div>
       )}
 
-      {/* Control Buttons & Playback Speed - Two Rows on Mobile, One Row on Desktop */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 min-w-0">
+      {/* Control Buttons & Playback Speed - Stacked to guarantee no box overflow in narrow column */}
+      <div className="flex flex-col gap-2 min-w-0">
         {/* Navigation Buttons Row */}
-        <div className="flex items-center justify-between sm:justify-start space-x-1.5 w-full sm:w-auto">
+        <div className="flex items-center space-x-1.5 w-full min-w-0">
           {/* Reset */}
           <button
             onClick={onReset}
@@ -100,7 +100,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
           {/* Play / Pause Primary */}
           <button
             onClick={onTogglePlay}
-            className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 transition-colors shadow-xs ${
+            className={`flex-1 px-4 py-1.5 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 transition-colors shadow-xs ${
               isPlaying
                 ? 'bg-amber-600 hover:bg-amber-500 text-white'
                 : 'bg-forest-600 hover:bg-forest-700 text-white'
@@ -133,22 +133,24 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
           </button>
         </div>
 
-        {/* Speed Controls Row */}
-        <div className="flex items-center justify-center space-x-1 bg-canvas p-1 sm:p-0.5 rounded-md border border-ink-border text-xs w-full sm:w-auto shrink-0">
-          <span className="text-[10px] text-ink-muted px-1.5 font-medium">Speed:</span>
-          {speeds.map((s) => (
-            <button
-              key={s}
-              onClick={() => onChangeSpeed(s)}
-              className={`flex-1 sm:flex-initial px-2.5 sm:px-2 py-1 sm:py-0.5 rounded text-[11px] font-mono transition-colors text-center ${
-                playbackSpeed === s
-                  ? 'bg-surface text-forest-700 font-bold shadow-xs border border-ink-border'
-                  : 'text-ink-secondary hover:text-ink-primary'
-              }`}
-            >
-              {s}x
-            </button>
-          ))}
+        {/* Speed Controls Row - full-width neatly contained inside the box */}
+        <div className="flex items-center justify-between bg-canvas px-2 py-1 rounded-md border border-ink-border text-xs w-full min-w-0">
+          <span className="text-[10px] text-ink-muted font-medium shrink-0">Speed:</span>
+          <div className="flex items-center space-x-1 flex-1 justify-end max-w-[220px]">
+            {speeds.map((s) => (
+              <button
+                key={s}
+                onClick={() => onChangeSpeed(s)}
+                className={`flex-1 px-2 py-0.5 rounded text-[11px] font-mono transition-colors text-center ${
+                  playbackSpeed === s
+                    ? 'bg-surface text-forest-700 font-bold shadow-xs border border-ink-border'
+                    : 'text-ink-secondary hover:text-ink-primary'
+                }`}
+              >
+                {s}x
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

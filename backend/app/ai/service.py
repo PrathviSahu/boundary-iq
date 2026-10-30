@@ -1,14 +1,43 @@
 import os
 import re
 import json
+import hashlib
 import logging
+import threading
 import concurrent.futures
+from collections import OrderedDict
 from typing import Dict, Tuple, Optional, Any, List
 from app.models.match import Delivery, SnapshotState
-from app.models.fantasy import BallFantasyImpact
+from app.models.fantasy import BallFantasyImpact, FantasyTeamConfig
 from app.models.explanation import (
     EventExplanation, RuleExplanation, EvidenceBoundary
 )
+
+# Module-level bounded thread pool and admission semaphore for Gemini calls.
+# max_workers=4 caps concurrent in-flight HTTP calls;
+# _GEMINI_SEMAPHORE limits admitted tasks so pending requests fail-fast to deterministic
+# fallback instead of accumulating in an unbounded queue.
+_MAX_GEMINI_WORKERS = 4
+_GEMINI_SEMAPHORE = threading.Semaphore(_MAX_GEMINI_WORKERS)
+_GEMINI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_MAX_GEMINI_WORKERS, thread_name_prefix="gemini_worker"
+)
+MAX_CACHE_SIZE = 500
+
+
+def _team_fingerprint(team: FantasyTeamConfig) -> str:
+    """Return a stable SHA-256 hex digest (16 chars) of the full team config.
+
+    Covers selected_players (sorted), captain, and vice_captain so that any
+    meaningful difference in fantasy configuration produces a different cache key.
+    """
+    stable = {
+        "players": sorted(team.selected_players),
+        "captain": team.captain,
+        "vice_captain": team.vice_captain,
+    }
+    payload = json.dumps(stable, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +100,13 @@ CRICKET_LAW_CATALOG: Dict[str, Dict[str, str]] = {
 }
 
 class AIExplanationService:
-    def __init__(self):
+    def __init__(self, max_cache_size: int = MAX_CACHE_SIZE):
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
-        # In-memory explanation cache: (match_id, delivery_index, ruleset_version) -> EventExplanation
-        self.cache: Dict[Tuple[str, int, str], EventExplanation] = {}
+        self.max_cache_size = max_cache_size
+        self._cache_lock = threading.Lock()
+        # Bounded LRU cache: (match_id, delivery_index, ruleset_version, team_fingerprint) -> EventExplanation
+        self.cache: "OrderedDict[Tuple[str, int, str, str], EventExplanation]" = OrderedDict()
         self.client = None
 
         if self.api_key:
@@ -86,27 +117,46 @@ class AIExplanationService:
             except Exception as e:
                 logger.warning(f"Failed to initialize Google Gen AI client: {e}")
 
+    def _get_from_cache(self, key: Tuple[str, int, str, str]) -> Optional[EventExplanation]:
+        with self._cache_lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            return None
+
+    def _put_in_cache(self, key: Tuple[str, int, str, str], value: EventExplanation) -> None:
+        with self._cache_lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            self.cache[key] = value
+            if len(self.cache) > self.max_cache_size:
+                self.cache.popitem(last=False)  # Evict oldest entry (LRU)
+
     def explain_delivery(
         self,
         match_id: str,
         delivery: Delivery,
         snapshot: SnapshotState,
         fantasy_impact: BallFantasyImpact,
+        team_config: FantasyTeamConfig,
         ruleset_version: str = "2024.3.0",
         force_refresh: bool = False
     ) -> EventExplanation:
-        cache_key = (match_id, delivery.index, ruleset_version)
+        fingerprint = _team_fingerprint(team_config)
+        cache_key = (match_id, delivery.index, ruleset_version, fingerprint)
 
         # Check cache
-        if not force_refresh and cache_key in self.cache:
-            return self.cache[cache_key]
+        if not force_refresh:
+            cached = self._get_from_cache(cache_key)
+            if cached:
+                return cached
 
         # If Gemini client is active, attempt AI generation with strict timeout & error sanitation
         if self.client and self.api_key:
             try:
                 ai_result = self._call_gemini(delivery, snapshot, fantasy_impact, ruleset_version)
                 if ai_result:
-                    self.cache[cache_key] = ai_result
+                    self._put_in_cache(cache_key, ai_result)
                     return ai_result
             except Exception as e:
                 sanitized_err = re.sub(r'([?&]key=|token=|bearer\s+)[^\s&]+', r'\1[REDACTED]', str(e), flags=re.IGNORECASE)
@@ -116,7 +166,7 @@ class AIExplanationService:
         deterministic_result = self._generate_deterministic_explanation(
             delivery, snapshot, fantasy_impact
         )
-        self.cache[cache_key] = deterministic_result
+        self._put_in_cache(cache_key, deterministic_result)
         return deterministic_result
 
     def _generate_deterministic_explanation(
@@ -331,13 +381,38 @@ EVENT DETAILS:
                 ),
             )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_invoke)
+        # Bounded admission: if all 4 worker slots are occupied, fail-fast
+        # immediately to deterministic fallback rather than queueing unboundedly.
+        acquired = _GEMINI_SEMAPHORE.acquire(blocking=False)
+        if not acquired:
+            logger.warning(
+                f"Gemini executor saturated (all {_MAX_GEMINI_WORKERS} workers busy). "
+                f"Fast-failing to deterministic fallback for ball {delivery.index}."
+            )
+            return None
+
+        def _wrapped_invoke():
             try:
-                response = future.result(timeout=timeout_seconds)
-            except concurrent.futures.TimeoutError:
-                logger.warning(f"Gemini API request timed out after {timeout_seconds}s for ball {delivery.index}.")
-                return None
+                return _invoke()
+            finally:
+                _GEMINI_SEMAPHORE.release()
+
+        try:
+            future = _GEMINI_EXECUTOR.submit(_wrapped_invoke)
+        except Exception:
+            _GEMINI_SEMAPHORE.release()
+            raise
+
+        done, _ = concurrent.futures.wait([future], timeout=timeout_seconds)
+        if not done:
+            logger.warning(
+                f"Gemini API request timed out after {timeout_seconds}s "
+                f"for ball {delivery.index}. Background worker slot remains held until completion."
+            )
+            future.cancel()  # No-op if running; prevents dispatch if queued.
+            return None
+
+        response = future.result()
 
         if response and response.text:
             data = json.loads(response.text)

@@ -93,6 +93,26 @@ export const App: React.FC = () => {
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
 
+  // Race-condition guards for loadBallState.
+  // latestRequestIdRef: monotonically increasing sequence counter for all loads.
+  // Any earlier in-flight response that resolves after a newer load has started
+  // is silently discarded — even if the user navigates back to the same delivery
+  // index or toggles team presets on the same ball.
+  const latestRequestIdRef = useRef<number>(0);
+  // explanationAbortRef: holds the AbortController for the active in-flight
+  // explanation request, cancelling the underlying fetch on superseded loads.
+  const explanationAbortRef = useRef<AbortController | null>(null);
+  // wasPlayingRef: tracks the previous isPlaying value so we can detect the
+  // true → false transition and trigger an explanation fetch when playback stops.
+  const wasPlayingRef = useRef<boolean>(false);
+
+  // Component cleanup: abort any in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      explanationAbortRef.current?.abort();
+    };
+  }, []);
+
   // 1. Initial Data Loading
   useEffect(() => {
     async function initData() {
@@ -126,11 +146,23 @@ export const App: React.FC = () => {
   // 2. Load Delivery State in O(1)
   const loadBallState = useCallback(
     async (index: number, currentTeam: FantasyTeamConfig) => {
+      // Register this load with a unique monotonically increasing sequence ID.
+      const requestId = ++latestRequestIdRef.current;
+
+      // Abort any previous in-flight explanation HTTP request.
+      explanationAbortRef.current?.abort();
+      const controller = new AbortController();
+      explanationAbortRef.current = controller;
+
       try {
         const [snapData, scoresData] = await Promise.all([
           fetchSnapshot(matchId, index),
           computeCustomScores(index, currentTeam),
         ]);
+
+        // Stale-response guard: if a newer request started while we were awaiting,
+        // discard this response entirely (even if visiting the same delivery index).
+        if (requestId !== latestRequestIdRef.current) return;
 
         setSnapshot(snapData);
         setPlayerScores(scoresData.player_scores);
@@ -138,31 +170,43 @@ export const App: React.FC = () => {
         setTeamDelta(scoresData.team_delta);
         setCurrentDeltaImpact(scoresData.ball_delta);
 
-        // If not playing at high speed, trigger explanation
+        // If not playing at high speed, trigger explanation with signal & requestId guard.
         if (!isPlayingRef.current) {
           setIsExplaining(true);
-          explainDelivery(matchId, index, currentTeam)
-            .then((exp) => setExplanation(exp))
-            .catch((e) => console.warn('Explanation error:', e))
-            .finally(() => setIsExplaining(false));
+          explainDelivery(matchId, index, currentTeam, controller.signal)
+            .then((exp) => {
+              if (requestId === latestRequestIdRef.current && !controller.signal.aborted) {
+                setExplanation(exp);
+              }
+            })
+            .catch((e) => {
+              if (e.name === 'AbortError' || controller.signal.aborted) return;
+              if (requestId === latestRequestIdRef.current) console.warn('Explanation error:', e);
+            })
+            .finally(() => {
+              if (requestId === latestRequestIdRef.current) setIsExplaining(false);
+            });
         }
       } catch (e: any) {
-        console.error(`Error loading ball ${index}:`, e);
+        if (e.name === 'AbortError') return;
+        if (requestId === latestRequestIdRef.current) {
+          console.error(`Error loading ball ${index}:`, e);
+        }
       }
     },
     [matchId]
   );
 
-  // When user stops or seeks, ensure explanation is fetched
+  // When playback transitions from playing → stopped, fetch the explanation for
+  // the current delivery. This is the only remaining trigger for a standalone
+  // explanation fetch; all navigation paths already call loadBallState directly.
+  // wasPlayingRef tracks the previous isPlaying value to detect the transition.
   useEffect(() => {
-    if (!isPlaying) {
-      setIsExplaining(true);
-      explainDelivery(matchId, currentIndex, teamConfig)
-        .then((exp) => setExplanation(exp))
-        .catch((e) => console.warn('Explanation error:', e))
-        .finally(() => setIsExplaining(false));
+    if (wasPlayingRef.current && !isPlaying) {
+      loadBallState(currentIndex, teamConfig);
     }
-  }, [currentIndex, isPlaying, matchId, teamConfig]);
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, currentIndex, teamConfig, loadBallState]);
 
   // 3. Replay Autoplay Loop
   useEffect(() => {

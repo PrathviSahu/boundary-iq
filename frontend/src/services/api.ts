@@ -97,12 +97,14 @@ export async function computeCustomScores(
 export async function explainDelivery(
   matchId: string,
   deliveryIndex: number,
-  teamConfig?: FantasyTeamConfig
+  teamConfig?: FantasyTeamConfig,
+  signal?: AbortSignal
 ): Promise<EventExplanation> {
   const res = await fetch(`${API_BASE}/matches/${matchId}/explain/${deliveryIndex}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: teamConfig ? JSON.stringify(teamConfig) : undefined,
+    signal,
   });
   if (!res.ok) throw new Error(`Failed to explain delivery ${deliveryIndex}`);
   return res.json();

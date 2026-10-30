@@ -49,6 +49,26 @@ def init_api_services(replay_engine: ReplayEngine, explanation_svc: AIExplanatio
     engine = replay_engine
     ai_service = explanation_svc
 
+
+def _validate_match_id(match_id: str) -> None:
+    """Raise HTTP 404 if match_id does not match the loaded match, or 500 if engine is absent."""
+    if not engine:
+        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    if engine.metadata.match_id != match_id:
+        raise HTTPException(status_code=404, detail=f"Match '{match_id}' not found")
+
+
+def _validate_delivery_index(delivery_index: int) -> None:
+    """Raise HTTP 400 for negative or out-of-range delivery indexes."""
+    if not engine:
+        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    if delivery_index < 0 or delivery_index >= len(engine.deliveries):
+        raise HTTPException(
+            status_code=400,
+            detail=f"delivery_index {delivery_index} is out of range "
+                   f"(valid: 0–{len(engine.deliveries) - 1})"
+        )
+
 @router.get("/health")
 def health_check():
     has_gemini = bool(os.getenv("GEMINI_API_KEY", "").strip())
@@ -78,34 +98,28 @@ def get_match(match_id: str):
 
 @router.get("/matches/{match_id}/deliveries", response_model=List[Delivery])
 def get_deliveries(match_id: str):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    _validate_match_id(match_id)
     return engine.deliveries
 
 @router.get("/matches/{match_id}/snapshot/{delivery_index}", response_model=SnapshotState)
 def get_snapshot(match_id: str, delivery_index: int):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Replay engine not initialized")
-    if delivery_index < 0 or delivery_index >= len(engine.deliveries):
-        raise HTTPException(status_code=404, detail="Delivery index out of bounds")
+    _validate_match_id(match_id)
+    _validate_delivery_index(delivery_index)
     return engine.get_snapshot(delivery_index)
 
 @router.get("/matches/{match_id}/key-moments", response_model=List[KeyMoment])
 def get_key_moments(match_id: str, filter_type: Optional[str] = Query(None, alias="category")):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    _validate_match_id(match_id)
     return engine.get_key_moments(filter_type)
 
 @router.get("/matches/{match_id}/players", response_model=List[PlayerInfo])
 def get_players(match_id: str):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    _validate_match_id(match_id)
     return engine.metadata.roster
 
 @router.get("/matches/{match_id}/ruleset", response_model=RulesetConfig)
 def get_ruleset(match_id: str):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Replay engine not initialized")
+    _validate_match_id(match_id)
     return engine.ruleset
 
 # --- Fantasy Endpoints ---
@@ -132,6 +146,7 @@ def save_fantasy_team(req: TeamCreationRequest):
 def get_team_score(team_id: str, delivery_index: int = Query(0)):
     if not engine:
         raise HTTPException(status_code=500, detail="Engine not ready")
+    _validate_delivery_index(delivery_index)
     team = saved_fantasy_teams.get(team_id, DEFAULT_FANTASY_SQUAD)
     squad_scores, ball_delta, team_total, team_delta = engine.get_fantasy_scores_for_team(
         delivery_index, team
@@ -148,10 +163,7 @@ def get_team_score(team_id: str, delivery_index: int = Query(0)):
 
 @router.post("/fantasy/scores/{delivery_index}", response_model=FantasyScoreResponse)
 def compute_custom_scores(delivery_index: int, team_config: Optional[FantasyTeamConfig] = None):
-    if not engine:
-        raise HTTPException(status_code=500, detail="Engine not ready")
-    if delivery_index < 0 or delivery_index >= len(engine.deliveries):
-        raise HTTPException(status_code=404, detail="Delivery index out of bounds")
+    _validate_delivery_index(delivery_index)
 
     team = team_config or DEFAULT_FANTASY_SQUAD
     squad_scores, ball_delta, team_total, team_delta = engine.get_fantasy_scores_for_team(
@@ -171,18 +183,19 @@ def compute_custom_scores(delivery_index: int, team_config: Optional[FantasyTeam
 
 @router.get("/matches/{match_id}/explain/{delivery_id}", response_model=EventExplanation)
 def explain_event_get(match_id: str, delivery_id: int):
+    _validate_match_id(match_id)
     return _explain_internal(delivery_id, DEFAULT_FANTASY_SQUAD)
 
 @router.post("/matches/{match_id}/explain/{delivery_id}", response_model=EventExplanation)
 def explain_event_post(match_id: str, delivery_id: int, team_config: Optional[FantasyTeamConfig] = None):
+    _validate_match_id(match_id)
     team = team_config or DEFAULT_FANTASY_SQUAD
     return _explain_internal(delivery_id, team)
 
 def _explain_internal(delivery_id: int, team: FantasyTeamConfig) -> EventExplanation:
     if not engine or not ai_service:
         raise HTTPException(status_code=500, detail="Services not initialized")
-    if delivery_id < 0 or delivery_id >= len(engine.deliveries):
-        raise HTTPException(status_code=404, detail="Delivery index out of bounds")
+    _validate_delivery_index(delivery_id)
 
     snapshot = engine.get_snapshot(delivery_id)
     delivery = snapshot.delivery_event
@@ -193,6 +206,7 @@ def _explain_internal(delivery_id: int, team: FantasyTeamConfig) -> EventExplana
         delivery=delivery,
         snapshot=snapshot,
         fantasy_impact=ball_delta,
+        team_config=team,
         ruleset_version=engine.ruleset.version
     )
 
