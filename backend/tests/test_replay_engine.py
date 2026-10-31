@@ -164,3 +164,28 @@ def test_deliveries_have_cricsheet_audit_attributes(engine):
         assert hasattr(dlv, "wickets")
         if dlv.is_wicket:
             assert len(dlv.wickets) >= 1
+
+def test_first_innings_persistence_during_chase(engine):
+    """Innings 1 snapshots have no first_innings fields; Innings 2 snapshots retain complete first innings score."""
+    # Innings 1 (Ball 50)
+    snap_inn1 = engine.get_snapshot(50)
+    assert snap_inn1.innings == 1
+    assert snap_inn1.first_innings_score is None
+    assert snap_inn1.first_innings_team is None
+
+    # Innings 2 (Ball 127 - start of SA chase)
+    snap_inn2_start = engine.get_snapshot(127)
+    assert snap_inn2_start.innings == 2
+    assert snap_inn2_start.batting_team == "South Africa"
+    assert snap_inn2_start.first_innings_team == "India"
+    assert snap_inn2_start.first_innings_score == 176
+    assert snap_inn2_start.first_innings_wickets == 7
+    assert snap_inn2_start.first_innings_overs == "20.0"
+    assert "India 176/7 (20.0 ov)" in snap_inn2_start.first_innings_summary
+
+    # Innings 2 Final Ball (Ball 250)
+    snap_inn2_end = engine.get_snapshot(250)
+    assert snap_inn2_end.first_innings_score == 176
+    assert snap_inn2_end.first_innings_wickets == 7
+    assert snap_inn2_end.team_score == 169
+    assert snap_inn2_end.team_wickets == 8

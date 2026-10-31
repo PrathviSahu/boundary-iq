@@ -22,6 +22,14 @@ export const Scoreboard: React.FC<ScoreboardProps> = ({
   }
 
   const isChase = scoreboard.innings === 2;
+  const team1Name = scoreboard.innings === 1 ? scoreboard.batting_team : (scoreboard.first_innings_team || scoreboard.bowling_team);
+  const team2Name = scoreboard.innings === 1 ? scoreboard.bowling_team : scoreboard.batting_team;
+  const team1Code = team1Name.toLowerCase().includes('india') ? 'IND' : team1Name.slice(0, 3).toUpperCase();
+  const team2Code = team2Name.toLowerCase().includes('south africa') ? 'SA' : team2Name.slice(0, 3).toUpperCase();
+
+  const inn1Score = scoreboard.innings === 1 ? scoreboard.team_score : (scoreboard.first_innings_score ?? 176);
+  const inn1Wickets = scoreboard.innings === 1 ? scoreboard.team_wickets : (scoreboard.first_innings_wickets ?? 7);
+  const inn1Overs = scoreboard.innings === 1 ? scoreboard.overs_display : (scoreboard.first_innings_overs ?? '20.0');
 
   return (
     <div className="bg-surface border border-ink-border rounded-lg shadow-sm p-3.5 sm:p-5 space-y-3.5 min-w-0">
@@ -59,26 +67,110 @@ export const Scoreboard: React.FC<ScoreboardProps> = ({
 
       {/* Primary Scorecard Grid: Team Score | Batting Table | Bowling Table */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-3.5 lg:gap-4 items-stretch">
-        {/* Main Team Score */}
-        <div className="md:col-span-12 lg:col-span-4 bg-canvas/70 border border-ink-border rounded-md p-3 flex items-center space-x-3.5 min-w-0">
-          <div className="w-12 h-12 rounded-lg bg-forest-50 border border-forest-200 flex items-center justify-center font-bold text-sm text-forest-800 tracking-wider shrink-0">
-            {scoreboard.batting_team === 'India' ? 'IND' : 'SA'}
+        {/* Main Team Score: Both Teams Match Scoreboard */}
+        <div className="md:col-span-12 lg:col-span-4 bg-canvas/70 border border-ink-border rounded-md p-2.5 sm:p-3 flex flex-col justify-between space-y-2 min-w-0">
+          {/* Team 1: India */}
+          <div
+            className={`p-2 rounded-md border transition-all ${
+              scoreboard.innings === 1
+                ? 'bg-white border-forest-300 shadow-xs ring-1 ring-forest-500/20'
+                : 'bg-canvas/60 border-ink-border/70'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 min-w-0">
+                <span className="w-8 h-8 rounded bg-forest-50 border border-forest-200 flex items-center justify-center font-bold text-xs text-forest-800 tracking-wider shrink-0">
+                  {team1Code}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-xs text-ink-primary truncate">{team1Name}</span>
+                    {scoreboard.innings === 1 ? (
+                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-forest-100 text-forest-800 uppercase tracking-wider shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-forest-600 mr-1 animate-pulse" />
+                        Batting
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-canvas text-ink-secondary border border-ink-border shrink-0">
+                        1st Innings
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Score */}
+              <div className="text-right shrink-0 font-mono tabular-nums">
+                <span className={`text-base sm:text-lg font-extrabold ${scoreboard.innings === 1 ? 'text-forest-700' : 'text-ink-primary'}`}>
+                  {inn1Score}
+                </span>
+                <span className="text-ink-secondary text-sm font-normal">/{inn1Wickets}</span>
+                <span className="text-[11px] text-ink-muted font-normal ml-1">
+                  ({inn1Overs} ov)
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline space-x-2 flex-wrap">
-              <span className="text-3xl sm:text-4xl font-extrabold text-ink-primary tracking-tight font-mono tabular-nums">
-                {scoreboard.team_score}
-                <span className="text-ink-secondary font-normal text-2xl">/{scoreboard.team_wickets}</span>
-              </span>
-              <span className="text-sm font-mono text-ink-secondary font-medium">
-                ({scoreboard.overs_display} ov)
-              </span>
+
+          {/* Team 2: South Africa */}
+          <div
+            className={`p-2 rounded-md border transition-all ${
+              scoreboard.innings === 2
+                ? 'bg-white border-forest-300 shadow-xs ring-1 ring-forest-500/20'
+                : 'bg-canvas/40 border-ink-border/50'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 min-w-0">
+                <span className="w-8 h-8 rounded bg-forest-50 border border-forest-200 flex items-center justify-center font-bold text-xs text-forest-800 tracking-wider shrink-0">
+                  {team2Code}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-xs text-ink-primary truncate">{team2Name}</span>
+                    {scoreboard.innings === 2 ? (
+                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-forest-100 text-forest-800 uppercase tracking-wider shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-forest-600 mr-1 animate-pulse" />
+                        Chasing
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-medium text-ink-muted">
+                        Yet to bat
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Score */}
+              <div className="text-right shrink-0">
+                {scoreboard.innings === 2 ? (
+                  <div className="font-mono tabular-nums">
+                    <span className="text-base sm:text-lg font-extrabold text-forest-700">
+                      {scoreboard.team_score}
+                    </span>
+                    <span className="text-ink-secondary text-sm font-normal">/{scoreboard.team_wickets}</span>
+                    <span className="text-[11px] text-ink-muted font-normal ml-1">
+                      ({scoreboard.overs_display} ov)
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-xs font-mono text-ink-muted italic">Yet to bat</span>
+                )}
+              </div>
             </div>
-            <div className="text-xs text-ink-secondary mt-0.5 truncate">
-              <span className="font-medium text-ink-primary">{scoreboard.batting_team}</span>
-              <span className="text-ink-muted mx-1.5">vs</span>
-              <span>{scoreboard.bowling_team}</span>
-            </div>
+
+            {/* Chase Equation for Innings 2 */}
+            {scoreboard.innings === 2 && scoreboard.runs_needed !== null && scoreboard.runs_needed !== undefined && (
+              <div className="mt-1 pt-1 border-t border-ink-border/40 flex items-center justify-between text-[10px] text-ink-secondary font-mono">
+                <span>Target: <strong className="text-ink-primary font-bold">{scoreboard.target ?? 177}</strong></span>
+                <span className="text-forest-700 font-semibold truncate ml-1">
+                  {scoreboard.runs_needed > 0
+                    ? `Need ${scoreboard.runs_needed} off ${scoreboard.balls_remaining}b`
+                    : 'Target Achieved!'}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

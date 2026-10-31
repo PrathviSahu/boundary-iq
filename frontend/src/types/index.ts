@@ -86,6 +86,11 @@ export interface SnapshotState {
   required_run_rate?: number | null;
   runs_needed?: number | null;
   balls_remaining?: number | null;
+  first_innings_team?: string | null;
+  first_innings_score?: number | null;
+  first_innings_wickets?: number | null;
+  first_innings_overs?: string | null;
+  first_innings_summary?: string | null;
   striker: BatterLiveStats;
   non_striker?: BatterLiveStats | null;
   bowler: BowlerLiveStats;

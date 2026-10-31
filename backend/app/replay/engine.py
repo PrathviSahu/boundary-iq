@@ -299,6 +299,7 @@ class ReplayEngine:
         """
         inn1_total = 0
         inn1_wickets = 0
+        inn1_legal_balls = 0
 
         # Cumulative trackers
         curr_inn = 1
@@ -347,6 +348,8 @@ class ReplayEngine:
                 inn1_total += dlv.total_runs
                 if dlv.is_wicket:
                     inn1_wickets += len(active_wickets)
+                if is_legal:
+                    inn1_legal_balls += 1
 
             # Update Batter
             b_name = dlv.batter
@@ -569,6 +572,17 @@ class ReplayEngine:
             runs_needed = None
             balls_remaining = None
 
+            inn1_comp_ov = inn1_legal_balls // 6
+            inn1_rem_b = inn1_legal_balls % 6
+            inn1_ov_disp = f"{inn1_comp_ov}.{inn1_rem_b}"
+            inn1_team = self.deliveries[0].team_batting if self.deliveries else "India"
+
+            first_innings_team = inn1_team if curr_inn == 2 else None
+            first_innings_score = inn1_total if curr_inn == 2 else None
+            first_innings_wickets = inn1_wickets if curr_inn == 2 else None
+            first_innings_overs = inn1_ov_disp if curr_inn == 2 else None
+            first_innings_summary = f"{inn1_team} {inn1_total}/{inn1_wickets} ({inn1_ov_disp} ov)" if curr_inn == 2 else None
+
             if curr_inn == 2 and target is not None:
                 runs_needed = max(0, target - team_score)
                 balls_remaining = max(0, 120 - legal_balls)
@@ -665,6 +679,11 @@ class ReplayEngine:
                 required_run_rate=rrr,
                 runs_needed=runs_needed,
                 balls_remaining=balls_remaining,
+                first_innings_team=first_innings_team,
+                first_innings_score=first_innings_score,
+                first_innings_wickets=first_innings_wickets,
+                first_innings_overs=first_innings_overs,
+                first_innings_summary=first_innings_summary,
                 striker=striker_stats,
                 non_striker=non_striker_stats,
                 bowler=bowler_stats,

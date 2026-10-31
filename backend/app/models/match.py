@@ -88,6 +88,11 @@ class SnapshotState(BaseModel):
     required_run_rate: Optional[float] = None
     runs_needed: Optional[int] = None
     balls_remaining: Optional[int] = None
+    first_innings_team: Optional[str] = None
+    first_innings_score: Optional[int] = None
+    first_innings_wickets: Optional[int] = None
+    first_innings_overs: Optional[str] = None
+    first_innings_summary: Optional[str] = None
     striker: BatterLiveStats
     non_striker: Optional[BatterLiveStats] = None
     bowler: BowlerLiveStats
